@@ -32,10 +32,15 @@ import qualified Data.ByteString.Char8                    as B8
 -- Perform the m-test on 'number'. Use `div` and `mod` to extract digits from
 -- the number; do not use `show`, as it is too slow.
 mtest :: Int -> Int -> Bool
-mtest m number =
-  -- Implement the m-test here!
-  undefined
+mtest m number = (addDigits number 1) `mod` m == 0
+  where
+    -- add digits together multiplied by their positions
+    addDigits :: Int -> Int -> Int
+    addDigits numberChunk position
+      | numberChunk <= 0 = 0
+      | otherwise = addDigits (numberChunk `div` 10) (position + 1) + (numberChunk `mod` 10) * position
 
+  
 
 -- -----------------------------------------------------------------------------
 -- 1. Counting mode (3pt)

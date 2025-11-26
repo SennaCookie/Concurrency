@@ -4,6 +4,7 @@
 --
 -- http://ics.uu.nl/docs/vakken/b3cc/assessment.html
 --
+{-# OPTIONS_GHC -Wno-unused-do-bind #-}
 module IBAN (
 
   Mode(..), Config(..),
@@ -51,43 +52,25 @@ count (Config b e m p) = do
   -- start counter at 0
   globalCounter <- newIORef 0
 
-  forkThreads p (addToCounter globalCounter . (performMTests . divideWork))
+  forkThreads p (addToCounter globalCounter . (countThreadMTests . divideWork (Config b e m p)))
 
   -- return the final value of the counter
   readIORef globalCounter
 
   where
-    -- calculate the range for an individual thread based on its index (inclusive lower, exclusive upper range)
-    divideWork :: Int -> (Int, Int)
-    divideWork index
-      | index < threadsWithExtraWork = (b + index * (threadWorkAmount + 1), b + (index + 1) * (threadWorkAmount + 1))
-      | otherwise = (b + index * threadWorkAmount + threadsWithExtraWork, b + (index + 1) * threadWorkAmount + threadsWithExtraWork)
-    -- how much work a single thread needs to do
-    threadWorkAmount = (e - b) `div` p
-    -- how much work isn't neatly divisible and up to which thread-index threads will compensate for this
-    threadsWithExtraWork = (e - b) `mod` p
-
     -- the amount of values in a range that satisfy the mtest
-    performMTests :: (Int, Int) -> Int
-    performMTests (lowerThreadRange, upperThreadRange) = sum $ map (boolToInt . mtest m) [lowerThreadRange..upperThreadRange]
-    boolToInt bool
-      | bool = 1
-      | otherwise = 0
+    countThreadMTests :: (Int, Int) -> Int
+    countThreadMTests (lowerThreadRange, upperThreadRange) = sum $ map (boolToInt . mtest m) [lowerThreadRange..upperThreadRange - 1]
 
-    -- CAS loop that tries to add a value to the global counter
-    addToCounter :: (IORef Int) -> Int -> IO()
+    -- CAS loop that adds value to the global counter
+    addToCounter :: IORef Int -> Int -> IO()
     addToCounter counter addedValue = do
-
-
-
-
-      
-      oldValue <- readIORef counter
-      let newValue = oldValue + addedValue
-
       ticket <- readForCAS counter
-      -- TODO: update counter
-      return () -- TODO: change to appropriate output value
+      let newValue = peekTicket ticket + addedValue
+      (success, _) <- casIORef counter ticket newValue
+      -- If the swap is succesful, return, else try again
+      if success then return ()
+      else addToCounter counter addedValue
 
 
 -- -----------------------------------------------------------------------------
@@ -95,10 +78,31 @@ count (Config b e m p) = do
 -- -----------------------------------------------------------------------------
 
 list :: Handle -> Config -> IO ()
-list handle config = do
-  -- Implement list mode here!
-  -- Remember to use "hPutStrLn handle" to write your output.
-  undefined
+list handle (Config b e m p) = do
+  sequenceNumber <- newMVar 1
+
+  forkThreads p (listThreadMTests sequenceNumber . divideWork (Config b e m p))
+
+  where
+    -- recursively go through all numbers in the range and print them if they satisfy the mtest
+    listThreadMTests :: MVar Int -> (Int, Int) -> IO()
+    listThreadMTests sequenceNumber (lowerThreadRange, upperThreadRange)
+      | lowerThreadRange == upperThreadRange - 1 = printIfPassed sequenceNumber lowerThreadRange  -- stop recursion after reaching upper bound
+      | otherwise = do
+          printIfPassed sequenceNumber lowerThreadRange
+          listThreadMTests sequenceNumber (lowerThreadRange + 1, upperThreadRange)
+      
+    -- Print a number and its sequencenumber if it passes the mtest
+    printIfPassed :: MVar Int -> Int -> IO()
+    printIfPassed sequenceNumber accountNumber 
+      | mtest m accountNumber = do
+          -- take the sequencenumber out of the mvar, print it with the accountnumber, increment it, and fill the mvar again
+          currentSequenceNumber <- takeMVar sequenceNumber
+          hPutStrLn handle (show currentSequenceNumber ++ show accountNumber)
+          let newSequenceNumber = currentSequenceNumber + 1
+          putMVar sequenceNumber newSequenceNumber
+      | otherwise = return() -- if the mtest isn't passed, don't print anything
+
 
 
 -- -----------------------------------------------------------------------------
@@ -152,3 +156,22 @@ forkThreads n work = do
 --
 checkHash :: ByteString -> String -> Bool
 checkHash expected value = expected == hash (B8.pack value)
+
+-- -----------------------------------------------------------------------------
+-- Helper functions
+-- -----------------------------------------------------------------------------
+
+-- calculate the range for an individual thread based on its index (inclusive lower, exclusive upper range)
+divideWork :: Config -> Int -> (Int, Int)
+divideWork (Config b e _ p) index
+  | index < threadsWithExtraWork = (b + index * (threadWorkAmount + 1), b + (index + 1) * (threadWorkAmount + 1))
+  | otherwise = (b + index * threadWorkAmount + threadsWithExtraWork, b + (index + 1) * threadWorkAmount + threadsWithExtraWork)
+  where
+    -- how much work a single thread needs to do
+    threadWorkAmount = (e - b) `div` p
+    -- how much work isn't neatly divisible and up to which thread-index threads will compensate for this
+    threadsWithExtraWork = (e - b) `mod` p
+
+boolToInt :: Bool -> Int
+boolToInt True = 1
+boolToInt False = 0

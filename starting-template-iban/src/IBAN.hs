@@ -37,7 +37,7 @@ mtest m number = (addDigits number 1) `mod` m == 0
     -- add digits together multiplied by their positions
     addDigits :: Int -> Int -> Int
     addDigits numberChunk position
-      | numberChunk <= 0 = 0
+      | numberChunk == 0 = 0
       | otherwise = addDigits (numberChunk `div` 10) (position + 1) + (numberChunk `mod` 10) * position
 
   
@@ -49,7 +49,14 @@ mtest m number = (addDigits number 1) `mod` m == 0
 count :: Config -> IO Int
 count config = do
   -- Implement count mode here!
-  undefined
+  let counter = 0
+  forkThreads (cfgThreads config) threadWork
+  return 1 -- TODO: change to appropriate output
+  
+  where
+    threadWork :: Int -> IO ()
+    threadWork currentCounter = do
+      return () -- TODO: change to appropriate output
 
 
 -- -----------------------------------------------------------------------------

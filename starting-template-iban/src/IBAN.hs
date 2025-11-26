@@ -40,23 +40,54 @@ mtest m number = (addDigits number 1) `mod` m == 0
       | numberChunk == 0 = 0
       | otherwise = addDigits (numberChunk `div` 10) (position + 1) + (numberChunk `mod` 10) * position
 
-  
+
 
 -- -----------------------------------------------------------------------------
 -- 1. Counting mode (3pt)
 -- -----------------------------------------------------------------------------
 
 count :: Config -> IO Int
-count config = do
-  -- Implement count mode here!
-  let counter = 0
-  forkThreads (cfgThreads config) threadWork
-  return 1 -- TODO: change to appropriate output
-  
+count (Config b e m p) = do
+  -- start counter at 0
+  globalCounter <- newIORef 0
+
+  forkThreads p (addToCounter globalCounter . (performMTests . divideWork))
+
+  -- return the final value of the counter
+  readIORef globalCounter
+
   where
-    threadWork :: Int -> IO ()
-    threadWork currentCounter = do
-      return () -- TODO: change to appropriate output
+    -- calculate the range for an individual thread based on its index (inclusive lower, exclusive upper range)
+    divideWork :: Int -> (Int, Int)
+    divideWork index
+      | index < threadsWithExtraWork = (b + index * (threadWorkAmount + 1), b + (index + 1) * (threadWorkAmount + 1))
+      | otherwise = (b + index * threadWorkAmount + threadsWithExtraWork, b + (index + 1) * threadWorkAmount + threadsWithExtraWork)
+    -- how much work a single thread needs to do
+    threadWorkAmount = (e - b) `div` p
+    -- how much work isn't neatly divisible and up to which thread-index threads will compensate for this
+    threadsWithExtraWork = (e - b) `mod` p
+
+    -- the amount of values in a range that satisfy the mtest
+    performMTests :: (Int, Int) -> Int
+    performMTests (lowerThreadRange, upperThreadRange) = sum $ map (boolToInt . mtest m) [lowerThreadRange..upperThreadRange]
+    boolToInt bool
+      | bool = 1
+      | otherwise = 0
+
+    -- CAS loop that tries to add a value to the global counter
+    addToCounter :: (IORef Int) -> Int -> IO()
+    addToCounter counter addedValue = do
+
+
+
+
+      
+      oldValue <- readIORef counter
+      let newValue = oldValue + addedValue
+
+      ticket <- readForCAS counter
+      -- TODO: update counter
+      return () -- TODO: change to appropriate output value
 
 
 -- -----------------------------------------------------------------------------

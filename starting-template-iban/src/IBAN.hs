@@ -5,6 +5,8 @@
 -- http://ics.uu.nl/docs/vakken/b3cc/assessment.html
 --
 {-# OPTIONS_GHC -Wno-unused-do-bind #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Redundant if" #-}
 module IBAN (
 
   Mode(..), Config(..),
@@ -33,13 +35,13 @@ import qualified Data.ByteString.Char8                    as B8
 -- Perform the m-test on 'number'. Use `div` and `mod` to extract digits from
 -- the number; do not use `show`, as it is too slow.
 mtest :: Int -> Int -> Bool
-mtest m number = (addDigits number 1) `mod` m == 0
+mtest m number = addDigits number 1 `mod` m == 0
   where
     -- add digits together multiplied by their positions
     addDigits :: Int -> Int -> Int
     addDigits numberChunk position
       | numberChunk == 0 = 0
-      | otherwise = addDigits (numberChunk `div` 10) (position + 1) + (numberChunk `mod` 10) * position
+      | otherwise = addDigits (numberChunk `div` 10) (position + 1) + numberChunk `mod` 10 * position
 
 
 
@@ -52,7 +54,7 @@ count (Config b e m p) = do
   -- start counter at 0
   globalCounter <- newIORef 0
 
-  forkThreads p (addToCounter globalCounter . (countThreadMTests . divideWork (Config b e m p)))
+  forkThreads p (casAdd globalCounter . countThreadMTests . divideWork (Config b e m p))
 
   -- return the final value of the counter
   readIORef globalCounter
@@ -61,16 +63,6 @@ count (Config b e m p) = do
     -- the amount of values in a range that satisfy the mtest
     countThreadMTests :: (Int, Int) -> Int
     countThreadMTests (lowerThreadRange, upperThreadRange) = sum $ map (boolToInt . mtest m) [lowerThreadRange..upperThreadRange - 1]
-
-    -- CAS loop that adds value to the global counter
-    addToCounter :: IORef Int -> Int -> IO()
-    addToCounter counter addedValue = do
-      ticket <- readForCAS counter
-      let newValue = peekTicket ticket + addedValue
-      (success, _) <- casIORef counter ticket newValue
-      -- If the swap is succesful, return, else try again
-      if success then return ()
-      else addToCounter counter addedValue
 
 
 -- -----------------------------------------------------------------------------
@@ -87,21 +79,21 @@ list handle (Config b e m p) = do
     -- recursively go through all numbers in the range and print them if they satisfy the mtest
     listThreadMTests :: MVar Int -> (Int, Int) -> IO()
     listThreadMTests sequenceNumber (lowerThreadRange, upperThreadRange)
-      | lowerThreadRange == upperThreadRange - 1 = printIfPassed sequenceNumber lowerThreadRange  -- stop recursion after reaching upper bound
+      | lowerThreadRange == upperThreadRange = return ()  -- stop recursion after reaching upper bound
       | otherwise = do
           printIfPassed sequenceNumber lowerThreadRange
           listThreadMTests sequenceNumber (lowerThreadRange + 1, upperThreadRange)
-      
+
     -- Print a number and its sequencenumber if it passes the mtest
     printIfPassed :: MVar Int -> Int -> IO()
-    printIfPassed sequenceNumber accountNumber 
+    printIfPassed sequenceNumber accountNumber
       | mtest m accountNumber = do
           -- take the sequencenumber out of the mvar, print it with the accountnumber, increment it, and fill the mvar again
           currentSequenceNumber <- takeMVar sequenceNumber
-          hPutStrLn handle (show currentSequenceNumber ++ show accountNumber)
+          hPutStrLn handle (show currentSequenceNumber ++ " " ++ show accountNumber)
           let newSequenceNumber = currentSequenceNumber + 1
           putMVar sequenceNumber newSequenceNumber
-      | otherwise = return() -- if the mtest isn't passed, don't print anything
+      | otherwise = return () -- if the mtest isn't passed, don't print anything
 
 
 
@@ -110,10 +102,116 @@ list handle (Config b e m p) = do
 -- -----------------------------------------------------------------------------
 
 search :: Config -> ByteString -> IO (Maybe Int)
-search config query = do
-  -- Implement search mode here!
-  undefined
+search (Config b e m p) query = do
+  -- Create the initial queue and put the entire range in it as one item
+  workQueue <- newQueue
+  enqueue workQueue (b, e)
+  -- Variable to keep track of how much work is left. When it becomes 0, the program terminates
+  workLeft <- newIORef 1
+  -- The return value. Its default is nothing, but it will be changed if a thread finds a solution
+  outcome <- newMVar Nothing
 
+  forkThreads p $ threadWork workQueue workLeft
+
+  takeMVar outcome -- return the outcome
+
+  where
+    chunkSize = 10
+
+    -- because of the way forkthreads is defined, an index needs to be given, but we don't use it, so it is discarded
+    threadWork :: Queue (Int, Int) -> IORef Int -> Int -> IO ()
+    threadWork workQueue workLeft _ = do
+      -- If there is no work left to do: terminate
+      workLeft_ <- readIORef workLeft
+      if workLeft_ <= 0 then return () else do
+        -- take a chunk from the queue
+        wholeWorkChunk <- dequeue workQueue
+        -- break off an appropriately sized piece of the work. The rest is enqueued again
+        workChunk <- splitWork workQueue workLeft wholeWorkChunk
+
+
+        -- TODO:  - perform work on own chunk
+        --        - stop everything if the value is found
+        --        - else: call threadwork again
+
+        return ()  -- TODO: change to appropriate value
+
+    -- If there is too much work for one thread, take a chunk of the work, split the rest in half and enqueue the halves
+    -- return the chunk of work this thread should work on
+    splitWork :: Queue (Int, Int) -> IORef Int -> (Int, Int) -> IO (Int, Int)
+    splitWork workQueue workLeft (lowerRange, upperRange)
+      -- If the chunk is appropriately sized, don't enqueue anything
+      | upperRange - lowerRange <= chunkSize = do
+          casAdd workLeft (-1)
+          return (lowerRange, upperRange)
+      | otherwise = do
+          -- Take a chunk for the thread itself 
+          let downSizedChunk = (lowerRange, lowerRange + chunkSize)
+          let (restLowerRange, restUpperRange) = (lowerRange + chunkSize, upperRange)
+          -- If the rest has size 1, do not split it in half
+          if restLowerRange == restUpperRange - 1
+            then enqueue workQueue (restLowerRange, restUpperRange)
+            -- devide the rest in 2 halves and enqueue them
+            else do
+              enqueue workQueue (restLowerRange, restLowerRange + (restUpperRange - restLowerRange) / 2)
+              enqueue workQueue (restLowerRange + (restUpperRange - restLowerRange) / 2, restUpperRange)
+              casAdd workLeft 1
+
+          return downSizedChunk
+
+    checkValidInRange :: ByteString -> IORef Int -> MVar (Maybe Int) -> (Int, Int) -> IO()
+    checkValidInRange expected workLeft outcome (lowerRange, upperRange)
+      | lowerRange == upperRange = return () -- stop recursion after reaching upper bound
+      | otherwise = do
+          -- if the mtest isn't satisfied, don't check the hash
+          if not (mtest m lowerRange) then return ()
+          -- check if hash is satisfied
+          else if not (checkHash expected (show lowerRange)) then return ()
+          else -- the correct hash has been found
+               _ <- takeMVar outcome -- the former value is not important, so it is not saved
+               putMVar outcome (Just lowerRange)
+
+          checkValidInRange expected (lowerRange + 1, upperRange)
+
+
+
+
+-- -----------------------------------------------------------------------------
+-- Queue implementation
+-- -----------------------------------------------------------------------------
+
+-- The queue is defined by its readlock and writelock that point to both ends of the queue. Between these ends exist pointer-value pairs
+data Queue a =
+  Queue (MVar (List a))
+        (MVar (List a))
+type List a = MVar (Item a)
+data Item a = Item a (List a)
+
+-- In a new empty queue, the read- and writelock point to the same value; the start is the same as the end
+newQueue :: IO (Queue a)
+newQueue = do
+    hole <- newEmptyMVar
+    readLock <- newMVar hole
+    writeLock <- newMVar hole
+    return (Queue readLock writeLock)
+
+enqueue :: Queue a -> a -> IO()
+enqueue (Queue _ writeLock) value = do
+  newHole <- newEmptyMVar
+  let item = Item val newHole
+  oldHole <- takeMVar writeLock
+  putMVar oldHole item
+  putMVar writeLock newHole
+
+dequeue :: Queue a -> IO a
+dequeue (Queue readLock _) = do
+  -- get the pointer to the first item
+  readEnd <- takeMVar readLock
+  -- obtain the dequeued item's value and the pointer to the new first item in the list
+  (Item value newFirstItemPointer) <- takeMVar readEnd
+  -- make the readLock point to the new start of the queue
+  putMVar readLock newFirstItemPointer
+  return value
 
 -- -----------------------------------------------------------------------------
 -- Starting framework
@@ -171,6 +269,16 @@ divideWork (Config b e _ p) index
     threadWorkAmount = (e - b) `div` p
     -- how much work isn't neatly divisible and up to which thread-index threads will compensate for this
     threadsWithExtraWork = (e - b) `mod` p
+
+-- CAS loop that adds a value to a counter
+casAdd :: IORef Int -> Int -> IO()
+casAdd counter addedValue = do
+  ticket <- readForCAS counter
+  let newValue = peekTicket ticket + addedValue
+  (success, _) <- casIORef counter ticket newValue
+  -- If the swap is succesful, return, else try again
+  if success then return ()
+  else casAdd counter addedValue
 
 boolToInt :: Bool -> Int
 boolToInt True = 1

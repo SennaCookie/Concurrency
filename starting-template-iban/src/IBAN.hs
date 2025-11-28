@@ -116,8 +116,12 @@ search (Config b e m p) query = do
   readIORef outcome -- return the outcome
 
   where
-    -- The maximum size of the work one thread can take for itself
-    chunkSize = 100
+    -- the maximum size of the work one thread can take for itself
+    --  - set to one tenth of the size of the total range divided per thread
+    --  - if the computed chunksize is too small, set it to 2 instead
+    chunkSize
+      | (e - b) `div` p `div` 10 < 2 = 2
+      | otherwise = (e - b) `div` p `div` 10
 
     -- because of the way forkthreads is defined, an index needs to be given, but we don't use it, so it is discarded
     threadWork :: Queue (Int, Int) -> IORef Int -> IORef (Maybe Int) -> Int -> IO ()
@@ -163,7 +167,7 @@ search (Config b e m p) query = do
     checkValidInRange outcome (lowerRange, upperRange)
       | lowerRange == upperRange = return () -- stop recursion after reaching upper bound
       | otherwise =
-          -- mtest first and then check hash
+          -- since mtest is faster, check that before checking the hash
           if mtest m lowerRange && checkHash query (show lowerRange) then do
             writeIORef outcome (Just lowerRange)
           -- if the solution hasn't been found, recurse and try again
@@ -259,22 +263,24 @@ checkHash expected value = expected == hash (B8.pack value)
 -- calculate the range for an individual thread based on its index (inclusive lower, exclusive upper range)
 divideWork :: Config -> Int -> (Int, Int)
 divideWork (Config b e _ p) index
+  -- Distribute the n-amount of undivisible work over the first n threads
   | index < threadsWithExtraWork = (b + index * (threadWorkAmount + 1), b + (index + 1) * (threadWorkAmount + 1))
   | otherwise = (b + index * threadWorkAmount + threadsWithExtraWork, b + (index + 1) * threadWorkAmount + threadsWithExtraWork)
   where
     -- how much work a single thread needs to do
     threadWorkAmount = (e - b) `div` p
-    -- how much work isn't neatly divisible and up to which thread-index threads will compensate for this
+    -- the amount of work that isn't neatly divisible
     threadsWithExtraWork = (e - b) `mod` p
 
 -- CAS loop that adds a value to a counter
 casAdd :: IORef Int -> Int -> IO()
 casAdd counter addedValue = do
+  -- obtain the current value and store it in a ticket
   ticket <- readForCAS counter
   let newValue = peekTicket ticket + addedValue
   (success, _) <- casIORef counter ticket newValue
-  -- If the swap is succesful, return, else try again
   if success then return ()
+  -- If the swap is unsuccessful: try again
   else casAdd counter addedValue
 
 boolToInt :: Bool -> Int

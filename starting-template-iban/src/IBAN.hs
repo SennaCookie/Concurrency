@@ -131,7 +131,7 @@ search (Config b e m p) query = do
         -- break off an appropriately sized piece of the work. The rest is enqueued again
         workChunk <- splitWork workQueue workLeft wholeWorkChunk
 
-        checkValidInRange workLeft outcome workChunk
+        checkValidInRange outcome workChunk
 
         -- Call this method again; the int isn't used so it can be undefined
         threadWork workQueue workLeft outcome undefined
@@ -159,8 +159,8 @@ search (Config b e m p) query = do
 
           return downSizedChunk
 
-    checkValidInRange :: IORef Int -> MVar (Maybe Int) -> (Int, Int) -> IO()
-    checkValidInRange workLeft outcome (lowerRange, upperRange)
+    checkValidInRange :: MVar (Maybe Int) -> (Int, Int) -> IO()
+    checkValidInRange outcome (lowerRange, upperRange)
       | lowerRange == upperRange = return () -- stop recursion after reaching upper bound
       | otherwise =
           -- mtest first and then check hash
@@ -169,7 +169,7 @@ search (Config b e m p) query = do
             putMVar outcome (Just lowerRange)
           -- if the solution hasn't been found, recurse and try again
           else do
-            checkValidInRange workLeft outcome (lowerRange + 1, upperRange)
+            checkValidInRange outcome (lowerRange + 1, upperRange)
 
 
 

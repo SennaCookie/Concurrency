@@ -109,22 +109,22 @@ search (Config b e m p) query = do
   -- Variable to keep track of how much work is left. When it becomes 0, the program terminates
   workLeft <- newIORef 1
   -- The return value. Its default is nothing, but it will be changed if a thread finds a solution
-  outcome <- newMVar Nothing
+  outcome <- newIORef Nothing
 
   forkThreads p $ threadWork workQueue workLeft outcome
 
-  takeMVar outcome -- return the outcome
+  readIORef outcome -- return the outcome
 
   where
     -- The maximum size of the work one thread can take for itself
-    chunkSize = 10
+    chunkSize = 100
 
     -- because of the way forkthreads is defined, an index needs to be given, but we don't use it, so it is discarded
-    threadWork :: Queue (Int, Int) -> IORef Int -> MVar (Maybe Int) -> Int -> IO ()
+    threadWork :: Queue (Int, Int) -> IORef Int -> IORef (Maybe Int) -> Int -> IO ()
     threadWork workQueue workLeft outcome _ = do
       -- If there is no work left to do or the solution has been found: terminate
       workLeft1 <- readIORef workLeft
-      outcome1 <- readMVar outcome
+      outcome1 <- readIORef outcome
       if workLeft1 <= 0 || outcome1 /= Nothing then return () else do
         -- take a chunk from the queue
         wholeWorkChunk <- dequeue workQueue
@@ -159,14 +159,13 @@ search (Config b e m p) query = do
 
           return downSizedChunk
 
-    checkValidInRange :: MVar (Maybe Int) -> (Int, Int) -> IO()
+    checkValidInRange :: IORef (Maybe Int) -> (Int, Int) -> IO()
     checkValidInRange outcome (lowerRange, upperRange)
       | lowerRange == upperRange = return () -- stop recursion after reaching upper bound
       | otherwise =
           -- mtest first and then check hash
           if mtest m lowerRange && checkHash query (show lowerRange) then do
-            _ <- takeMVar outcome -- the former value is not important, so it is not saved
-            putMVar outcome (Just lowerRange)
+            writeIORef outcome (Just lowerRange)
           -- if the solution hasn't been found, recurse and try again
           else do
             checkValidInRange outcome (lowerRange + 1, upperRange)

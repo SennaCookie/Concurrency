@@ -107,7 +107,7 @@ search (Config b e m p) query = do
   workQueue <- newQueue
   enqueue workQueue (b, e)
   -- Variable to keep track of how much work is left. When it becomes 0, the program terminates
-  workLeft <- newIORef 1
+  workLeft <- newMVar 1
   -- The return value. Its default is nothing, but it will be changed if a thread finds a solution
   outcome <- newIORef Nothing
 
@@ -124,45 +124,47 @@ search (Config b e m p) query = do
       | otherwise = (e - b) `div` p `div` 10
 
     -- because of the way forkthreads is defined, an index needs to be given, but we don't use it, so it is discarded
-    threadWork :: Queue (Int, Int) -> IORef Int -> IORef (Maybe Int) -> Int -> IO ()
+    threadWork :: Queue (Int, Int) -> MVar Int -> IORef (Maybe Int) -> Int -> IO ()
     threadWork workQueue workLeft outcome _ = do
-      -- If there is no work left to do or the solution has been found: terminate
-      workLeft1 <- readIORef workLeft
-      outcome1 <- readIORef outcome
-      if workLeft1 <= 0 || outcome1 /= Nothing then return () else do
+      currentWorkLeft <- takeMVar workLeft
+      currentOutcome <- readIORef outcome
+      -- If there is no work left to do or the solution has been found: put the MVar back (so other threads won't wait on it forever) and terminate
+      if currentWorkLeft <= 0 || currentOutcome /= Nothing then putMVar workLeft currentWorkLeft else do
         -- take a chunk from the queue
         wholeWorkChunk <- dequeue workQueue
-        -- break off an appropriately sized piece of the work. The rest is enqueued again
-        workChunk <- splitWork workQueue workLeft wholeWorkChunk
+        
+        workChunk <- splitWork workQueue workLeft currentWorkLeft wholeWorkChunk
 
         checkValidInRange outcome workChunk
 
-        -- Call this method again; the int isn't used so it can be undefined
+        -- if a thread has finished its work, take new work from the queue
+        -- the int isn't used so it can be undefined
         threadWork workQueue workLeft outcome undefined
 
-    -- If there is too much work for one thread, take a chunk of the work, split the rest in half and enqueue the halves
-    -- return the chunk of work this thread should work on
-    splitWork :: Queue (Int, Int) -> IORef Int -> (Int, Int) -> IO (Int, Int)
-    splitWork workQueue workLeft (lowerRange, upperRange)
-      -- If the chunk is appropriately sized, don't enqueue anything
+    -- break off an appropriately sized piece of the work. The rest is enqueued again
+    -- the workLeft MVar is updated so other threads can work on it again
+    splitWork :: Queue (Int, Int) -> MVar Int -> Int -> (Int, Int) -> IO (Int, Int)
+    splitWork workQueue workLeftMVar currentWorkLeft (lowerRange, upperRange)
+      -- If the chunk is appropriately sized, take it in its entirety
       | upperRange - lowerRange <= chunkSize = do
-          casAdd workLeft (-1)
+          putMVar workLeftMVar (currentWorkLeft - 1)
           return (lowerRange, upperRange)
       | otherwise = do
           -- Take a chunk for the thread itself 
           let downSizedChunk = (lowerRange, lowerRange + chunkSize)
           let (restLowerRange, restUpperRange) = (lowerRange + chunkSize, upperRange)
-          -- If the rest has size 1, do not split it in half
-          if restLowerRange == restUpperRange - 1
-            then enqueue workQueue (restLowerRange, restUpperRange)
-            -- devide the rest in 2 halves and enqueue them
-            else do
+          
+          if restLowerRange == restUpperRange - 1 -- If the rest has size 1, do not split it in half
+            then do enqueue workQueue (restLowerRange, restUpperRange)
+                    putMVar workLeftMVar currentWorkLeft
+            else do -- divide the rest in 2 halves and enqueue them
               enqueue workQueue (restLowerRange, restLowerRange + (restUpperRange - restLowerRange) `div` 2)
               enqueue workQueue (restLowerRange + (restUpperRange - restLowerRange) `div` 2, restUpperRange)
-              casAdd workLeft 1
+              putMVar workLeftMVar (currentWorkLeft + 1)
 
           return downSizedChunk
 
+    -- perform the mtest and hash-test on a thread's range; update the outcome if a solution has been found
     checkValidInRange :: IORef (Maybe Int) -> (Int, Int) -> IO()
     checkValidInRange outcome (lowerRange, upperRange)
       | lowerRange == upperRange = return () -- stop recursion after reaching upper bound
@@ -282,6 +284,12 @@ casAdd counter addedValue = do
   if success then return ()
   -- If the swap is unsuccessful: try again
   else casAdd counter addedValue
+
+-- TODO: remove this probably
+-- -- add a value to an MVar Int
+-- mVarAdd :: MVar Int -> Int -> IO()
+-- mVarAdd mVar addedValue = do
+
 
 boolToInt :: Bool -> Int
 boolToInt True = 1

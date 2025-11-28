@@ -82,7 +82,7 @@ list handle (Config b e m p) = do
       | lowerThreadRange == upperThreadRange = return ()  -- stop recursion after reaching upper bound
       | otherwise = do
           printIfPassed sequenceNumber lowerThreadRange
-          listThreadMTests sequenceNumber (lowerThreadRange + 1, upperThreadRange)
+          listThreadMTests sequenceNumber (lowerThreadRange + 1, upperThreadRange)  -- recurse
 
     -- Print a number and its sequencenumber if it passes the mtest
     printIfPassed :: MVar Int -> Int -> IO()
@@ -153,14 +153,10 @@ search (Config b e m p) query = do
           -- Take a chunk for the thread itself 
           let downSizedChunk = (lowerRange, lowerRange + chunkSize)
           let (restLowerRange, restUpperRange) = (lowerRange + chunkSize, upperRange)
-          
-          if restLowerRange == restUpperRange - 1 -- If the rest has size 1, do not split it in half
-            then do enqueue workQueue (restLowerRange, restUpperRange)
-                    putMVar workLeftMVar currentWorkLeft
-            else do -- divide the rest in 2 halves and enqueue them
-              enqueue workQueue (restLowerRange, restLowerRange + (restUpperRange - restLowerRange) `div` 2)
-              enqueue workQueue (restLowerRange + (restUpperRange - restLowerRange) `div` 2, restUpperRange)
-              putMVar workLeftMVar (currentWorkLeft + 1)
+          -- divide the rest in 2 halves and enqueue them
+          enqueue workQueue (restLowerRange, restLowerRange + (restUpperRange - restLowerRange) `div` 2)
+          enqueue workQueue (restLowerRange + (restUpperRange - restLowerRange) `div` 2, restUpperRange)
+          putMVar workLeftMVar (currentWorkLeft + 1)
 
           return downSizedChunk
 
@@ -262,7 +258,7 @@ checkHash expected value = expected == hash (B8.pack value)
 -- Helper functions
 -- -----------------------------------------------------------------------------
 
--- calculate the range for an individual thread based on its index (inclusive lower, exclusive upper range)
+-- calculate the range for an individual thread based on its index
 divideWork :: Config -> Int -> (Int, Int)
 divideWork (Config b e _ p) index
   -- Distribute the n-amount of undivisible work over the first n threads
@@ -284,12 +280,6 @@ casAdd counter addedValue = do
   if success then return ()
   -- If the swap is unsuccessful: try again
   else casAdd counter addedValue
-
--- TODO: remove this probably
--- -- add a value to an MVar Int
--- mVarAdd :: MVar Int -> Int -> IO()
--- mVarAdd mVar addedValue = do
-
 
 boolToInt :: Bool -> Int
 boolToInt True = 1

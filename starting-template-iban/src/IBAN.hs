@@ -111,30 +111,30 @@ search (Config b e m p) query = do
   -- The return value. Its default is nothing, but it will be changed if a thread finds a solution
   outcome <- newMVar Nothing
 
-  forkThreads p $ threadWork workQueue workLeft
+  forkThreads p $ threadWork workQueue workLeft outcome
 
   takeMVar outcome -- return the outcome
 
   where
+    -- The maximum size of the work one thread can take for itself
     chunkSize = 10
 
     -- because of the way forkthreads is defined, an index needs to be given, but we don't use it, so it is discarded
-    threadWork :: Queue (Int, Int) -> IORef Int -> Int -> IO ()
-    threadWork workQueue workLeft _ = do
-      -- If there is no work left to do: terminate
-      workLeft_ <- readIORef workLeft
-      if workLeft_ <= 0 then return () else do
+    threadWork :: Queue (Int, Int) -> IORef Int -> MVar (Maybe Int) -> Int -> IO ()
+    threadWork workQueue workLeft outcome _ = do
+      -- If there is no work left to do or the solution has been found: terminate
+      workLeft1 <- readIORef workLeft
+      outcome1 <- readMVar outcome
+      if workLeft1 <= 0 || outcome1 /= Nothing then return () else do
         -- take a chunk from the queue
         wholeWorkChunk <- dequeue workQueue
         -- break off an appropriately sized piece of the work. The rest is enqueued again
         workChunk <- splitWork workQueue workLeft wholeWorkChunk
 
+        checkValidInRange workLeft outcome workChunk
 
-        -- TODO:  - perform work on own chunk
-        --        - stop everything if the value is found
-        --        - else: call threadwork again
-
-        return ()  -- TODO: change to appropriate value
+        -- Call this method again; the int isn't used so it can be undefined
+        threadWork workQueue workLeft outcome undefined
 
     -- If there is too much work for one thread, take a chunk of the work, split the rest in half and enqueue the halves
     -- return the chunk of work this thread should work on
@@ -153,25 +153,23 @@ search (Config b e m p) query = do
             then enqueue workQueue (restLowerRange, restUpperRange)
             -- devide the rest in 2 halves and enqueue them
             else do
-              enqueue workQueue (restLowerRange, restLowerRange + (restUpperRange - restLowerRange) / 2)
-              enqueue workQueue (restLowerRange + (restUpperRange - restLowerRange) / 2, restUpperRange)
+              enqueue workQueue (restLowerRange, restLowerRange + (restUpperRange - restLowerRange) `div` 2)
+              enqueue workQueue (restLowerRange + (restUpperRange - restLowerRange) `div` 2, restUpperRange)
               casAdd workLeft 1
 
           return downSizedChunk
 
-    checkValidInRange :: ByteString -> IORef Int -> MVar (Maybe Int) -> (Int, Int) -> IO()
-    checkValidInRange expected workLeft outcome (lowerRange, upperRange)
+    checkValidInRange :: IORef Int -> MVar (Maybe Int) -> (Int, Int) -> IO()
+    checkValidInRange workLeft outcome (lowerRange, upperRange)
       | lowerRange == upperRange = return () -- stop recursion after reaching upper bound
-      | otherwise = do
-          -- if the mtest isn't satisfied, don't check the hash
-          if not (mtest m lowerRange) then return ()
-          -- check if hash is satisfied
-          else if not (checkHash expected (show lowerRange)) then return ()
-          else -- the correct hash has been found
-               _ <- takeMVar outcome -- the former value is not important, so it is not saved
-               putMVar outcome (Just lowerRange)
-
-          checkValidInRange expected (lowerRange + 1, upperRange)
+      | otherwise =
+          -- mtest first and then check hash
+          if mtest m lowerRange && checkHash query (show lowerRange) then do
+            _ <- takeMVar outcome -- the former value is not important, so it is not saved
+            putMVar outcome (Just lowerRange)
+          -- if the solution hasn't been found, recurse and try again
+          else do
+            checkValidInRange workLeft outcome (lowerRange + 1, upperRange)
 
 
 
@@ -198,7 +196,7 @@ newQueue = do
 enqueue :: Queue a -> a -> IO()
 enqueue (Queue _ writeLock) value = do
   newHole <- newEmptyMVar
-  let item = Item val newHole
+  let item = Item value newHole
   oldHole <- takeMVar writeLock
   putMVar oldHole item
   putMVar writeLock newHole

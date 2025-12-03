@@ -103,7 +103,19 @@ initialise
     -> Node
     -> IO (Buckets, TentativeDistances)
 initialise graph delta source = do
-  undefined
+  -- Get information about the graph
+  let nodes = labNodes graph
+  let startingNodeIndex = fromJust $ elemIndex source nodes
+  let amountOfNodes = noNodes graph 
+  -- generate an IOVector where all tentative distances are infinity, except the starting node, which is zero
+  let tentativeDistances = S.generate noNodes assignDistances
+
+  -- TODO: generate the buckets
+
+    where assignDistances index
+            | index == startingNodeIndex = 0
+            | otherwise = infinity
+
 
 
 -- Take a single step of the algorithm.

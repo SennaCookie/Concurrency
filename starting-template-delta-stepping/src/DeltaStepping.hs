@@ -103,20 +103,27 @@ initialise
     -> Node
     -> IO (Buckets, TentativeDistances)
 initialise graph delta source = do
-  -- Get information about the graph
-  let nodes = labNodes graph
-  let startingNodeIndex = fromJust $ elemIndex source nodes
-  let amountOfNodes = noNodes graph 
+
+  -- | Tentative distances
+  let amountOfNodes = noNodes graph
   -- generate an IOVector where all tentative distances are infinity, except the starting node, which is zero
-  let tentativeDistances = S.generate noNodes assignDistances
+  -- TODO: (Remove this line if it turns out to be true: this code assumes the graph has nodes in the range [0..] where it doesn't skip any indeces)
+  let tentativeDistances = S.generate amountOfNodes (\index -> if index == source then 0 else infinity)
 
-  -- TODO: generate the buckets
+  -- | Buckets
+  let longestEdgeDistance = maximum $ map edgeLabel $ labEdges graph
+  let noBuckets = (longestEdgeDistance / delta) + 1
+  -- Create variable that keeps track of the first bucket's index (starts at 0)
+  firstBucketIndex <- newIORef 0
+  -- fill first bucket with the source node; rest is empty
+  initialBucketArray <- V.generate noBuckets (\index -> if index == 0 then Set.singleton source else Set.empty)
+  let buckets = Buckets{
+    firstBucket = firstBucketIndex,
+    bucketArray = initialBucketArray}
 
-    where assignDistances index
-            | index == startingNodeIndex = 0
-            | otherwise = infinity
+  return (buckets, tentativeDistances)
 
-
+ 
 
 -- Take a single step of the algorithm.
 -- That is, one iteration of the outer while loop.

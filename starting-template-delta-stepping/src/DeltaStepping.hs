@@ -153,29 +153,43 @@ step verbose threadCount graph delta buckets distances = do
 allBucketsEmpty :: Buckets -> IO Bool
 allBucketsEmpty buckets = do
   -- get information about the buckets
-  let thisIOVector = bucketArray buckets
-      arrayLength = length thisIOVector
+  let thisBucketArray = bucketArray buckets
+      noBuckets = length thisBucketArray -- number of buckets
   
-  -- Recursively check if every bucket is empty by index (starting at 0)
+  -- Recursively check if every bucket is empty by index
+  -- Starts at index 0, because the real indeces are not important
   theseBucketsEmpty 0
   
   where
     theseBucketsEmpty index
-      | index == arrayLength = return True
+      | index == noBuckets = return True
       | otherwise = do
-          thisIntSet <- read thisIOVector index
-          if thisIntSet == Set.empty
+          thisBucket <- read thisBucketArray index
+          if thisBucket == Set.empty
             then theseBucketsEmpty $ index + 1
             else return False -- if any bucket is not empty, stop recursing and return False
 
 
 
--- Return the index of the first non-empty bucket. Assumes that there is at
--- least one non-empty bucket remaining.
+-- Return the index of the first non-empty bucket.
+-- Assumes that there is at least one non-empty bucket remaining.
 --
 findNextBucket :: Buckets -> IO Int
 findNextBucket buckets = do
-  undefined
+  let currentFirstBucket = firstBucket buckets -- the real index
+      bucketIOVector = bucketArray buckets
+      noBuckets = length bucketIOVector -- number of buckets
+  
+  -- Recursively check for every bucket if it's filled, starting with the first bucket
+  return bucketNotEmpty currentFirstBucket
+
+  where 
+    bucketNotEmpty index = do
+      thisBucket <- read bucketIOVector $ index % noBuckets
+      if thisBucket == Set.empty
+        then bucketNotEmpty $ index + 1
+        else return index
+  
 
 
 -- Create requests of (node, distance) pairs that fulfil the given predicate
@@ -226,6 +240,7 @@ relax buckets distances delta (node, newDistance) = do
 
 type TentativeDistances = S.IOVector Distance
 
+-- TODO: Make sure indexing of firstBucket starts at 0, but I'm pretty sure it does
 data Buckets = Buckets
   { firstBucket   :: {-# UNPACK #-} !(IORef Int)           -- real index of the first bucket (j)
   , bucketArray   :: {-# UNPACK #-} !(V.IOVector IntSet)   -- cyclic array of buckets

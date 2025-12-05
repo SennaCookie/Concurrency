@@ -152,19 +152,21 @@ step verbose threadCount graph delta buckets distances = do
 -- TODO: Maybe ? I didn't finalize all tentative distances. IDK if ur supposed to do that explicitly here
 allBucketsEmpty :: Buckets -> IO Bool
 allBucketsEmpty buckets = do
+  -- get information about the buckets
   let thisIOVector = bucketArray buckets
       arrayLength = length thisIOVector
-  thisBucketArray <- toArray 0
-
-  return $ all (\x -> x == Set.empty) thisBucketArray
+  
+  -- Recursively check if every bucket is empty by index (starting at 0)
+  theseBucketsEmpty 0
+  
   where
-    -- Convert the IOVector to an array
-    toArray index
-      | index == arrayLength = return [] 
+    theseBucketsEmpty index
+      | index == arrayLength = return True
       | otherwise = do
-          thisIntMap <- read thisIOVector index
-          arrayRest <- toArray $ index + 1
-          return $ thisIntMap : arrayRest
+          thisIntSet <- read thisIOVector index
+          if thisIntSet == Set.empty
+            then theseBucketsEmpty $ index + 1
+            else return False -- if any bucket is not empty, stop recursing and return False
 
 
 

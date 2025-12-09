@@ -95,6 +95,7 @@ deltaStepping verbose graph delta source = do
   --
   S.unsafeFreeze distances
 
+
 -- Initialise algorithm state
 --
 initialise
@@ -105,14 +106,14 @@ initialise
 initialise graph delta source = do
 
   -- | Tentative distances
-  let amountOfNodes = noNodes graph
+  let amountOfNodes = G.noNodes graph
   -- generate an IOVector where all tentative distances are infinity, except the starting node, which is zero
   -- TODO: (Remove this line if it turns out to be true: this code assumes the graph has nodes in the range [0..] where it doesn't skip any indeces)
-  let tentativeDistances = S.generate amountOfNodes (\index -> if index == source then 0 else infinity)
+  tentativeDistances <-  S.generate amountOfNodes (\index -> if index == source then 0 else infinity)
 
   -- | Buckets
-  let longestEdgeDistance = maximum $ map edgeLabel $ labEdges graph
-  let noBuckets = (longestEdgeDistance / delta) + 1
+  let longestEdgeDistance = maximum $ map G.edgeLabel $ G.labEdges graph
+  let noBuckets = round (longestEdgeDistance / delta) + 1
   -- Create variable that keeps track of the first bucket's index (starts at 0)
   firstBucketIndex <- newIORef 0
   -- fill first bucket with the source node; rest is empty
@@ -154,19 +155,19 @@ allBucketsEmpty :: Buckets -> IO Bool
 allBucketsEmpty buckets = do
   -- get information about the buckets
   let thisBucketArray = bucketArray buckets
-      noBuckets = length thisBucketArray -- number of buckets
+      noBuckets = V.length thisBucketArray -- number of buckets
   
   -- Recursively check if every bucket is empty by index
   -- Starts at index 0, because the real indeces are not important
-  theseBucketsEmpty 0
+  theseBucketsEmpty 0 noBuckets thisBucketArray
   
   where
-    theseBucketsEmpty index
+    theseBucketsEmpty index noBuckets thisBucketArray
       | index == noBuckets = return True
       | otherwise = do
-          thisBucket <- read thisBucketArray index
+          thisBucket <- V.read thisBucketArray index
           if thisBucket == Set.empty
-            then theseBucketsEmpty $ index + 1
+            then theseBucketsEmpty (index + 1) noBuckets thisBucketArray
             else return False -- if any bucket is not empty, stop recursing and return False
 
 
@@ -176,18 +177,19 @@ allBucketsEmpty buckets = do
 --
 findNextBucket :: Buckets -> IO Int
 findNextBucket buckets = do
-  let currentFirstBucket = firstBucket buckets -- the real index
-      bucketIOVector = bucketArray buckets
-      noBuckets = length bucketIOVector -- number of buckets
+  currentFirstBucket <- readIORef $ firstBucket buckets -- the real index
+  let bucketIOVector = bucketArray buckets
+      noBuckets = V.length bucketIOVector -- number of buckets
+  res <- bucketNotEmpty currentFirstBucket noBuckets bucketIOVector
   
   -- Recursively check for every bucket if it's filled, starting with the first bucket
-  return bucketNotEmpty currentFirstBucket
+  return res
 
   where 
-    bucketNotEmpty index = do
-      thisBucket <- read bucketIOVector $ index % noBuckets
+    bucketNotEmpty index noBuckets bucketIOVector = do
+      thisBucket <- V.read bucketIOVector $ index `mod` noBuckets
       if thisBucket == Set.empty
-        then bucketNotEmpty $ index + 1
+        then bucketNotEmpty (index + 1) noBuckets bucketIOVector
         else return index
   
 

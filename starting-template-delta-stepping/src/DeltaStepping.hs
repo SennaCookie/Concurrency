@@ -207,30 +207,38 @@ findRequests threadCount p graph v' distances = do
   -- v' is the set of nodes in the bucket
   let noNodes = Set.size v'
   nodesInBucket <- newMVar v'
+  -- a counter that keeps track of which node is  being handled
   count <- newMVar 0
+  -- at the start of the method, the Map of requests is empty
+  -- threads will add the requests they find to this intMap
   intMap <- newMVar Map.empty
+
   forkThreads threadCount (searchRequests nodesInBucket intMap count noNodes distances)
-  finalIntMap <- takeMVar intMap
-  return finalIntMap
+  
+  -- return the final intMap of requests
+  takeMVar intMap
+
   where
-    -- find edges to neighbouring nodes
-    -- filter edges
-    -- calculate new costs
-    -- add node cost pair to set
+    -- find the requests of a single node and add it to the total of requests
     searchRequests nodesInBucket intMap count noNodes tentativeDistances _ = do
       currentCount <- takeMVar count
+      -- if all modes have been checked, terminate thread
       if currentCount == noNodes then putMVar count currentCount
       else do
         putMVar count (currentCount + 1)
+        -- take a (the lowest indexed) node from the set 
         nodeSet <- takeMVar nodesInBucket
         let (node, newIntSet) = Set.deleteFindMin nodeSet
         putMVar nodesInBucket newIntSet
+        -- find edges of the node and turn them into a Map of requests
         nodeCost <- S.read tentativeDistances node
         let edges = [(neighbour, nodeCost + dist) |(cur, neighbour, dist) <- (G.out graph node), p dist]
         let newIntMap = Map.fromList edges
-    -- get intMap
+        -- get intMap of requests made by other threads so far
         oldIntMap <- takeMVar intMap
+        -- merge the new requests Map with the old one; in case of duplicate requests, take the shortest
         putMVar intMap (Map.unionWith (min) oldIntMap newIntMap)
+        -- recurse
         searchRequests nodesInBucket intMap count noNodes tentativeDistances undefined
 
 

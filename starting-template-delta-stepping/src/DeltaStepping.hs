@@ -205,26 +205,34 @@ findRequests
     -> IO (IntMap Distance)
 findRequests threadCount p graph v' distances = do
   -- v' is the set of nodes in the bucket
-  let list = Set.toList v'
-
-  --intMap
+  let noNodes = Set.size v'
+  nodesInBucket <- newMVar v'
+  count <- newMVar 0
   intMap <- newMVar Map.empty
-  --forkThreads (searchRequests node intMap)
-
+  forkThreads threadCount (searchRequests nodesInBucket intMap count noNodes distances)
+  finalIntMap <- takeMVar intMap
+  return finalIntMap
   where
     -- find edges to neighbouring nodes
     -- filter edges
     -- calculate new costs
     -- add node cost pair to set
-    searchRequests node intMap tid = do
-      let nodeCost node = S.read tentativeDistances node
-      let edges = [(neighbour, (nodeCost node) + dist) |(cur, neighbour, dist) <- (G.out graph node), p dist]
-      let newIntMap = Map.fromList edges
+    searchRequests nodesInBucket intMap count noNodes tentativeDistances _ = do
+      currentCount <- takeMVar count
+      if currentCount == noNodes then putMVar count currentCount
+      else do
+        putMVar count (currentCount + 1)
+        nodeSet <- takeMVar nodesInBucket
+        let (node, newIntSet) = Set.deleteFindMin nodeSet
+        putMVar nodesInBucket newIntSet
+        nodeCost <- S.read tentativeDistances node
+        let edges = [(neighbour, nodeCost + dist) |(cur, neighbour, dist) <- (G.out graph node), p dist]
+        let newIntMap = Map.fromList edges
     -- get intMap
-      oldIntMap <- takeMVar intMap
-      putMVar intMap (Map.unionWith (min) oldIntMap newIntMap)
+        oldIntMap <- takeMVar intMap
+        putMVar intMap (Map.unionWith (min) oldIntMap newIntMap)
+        searchRequests nodesInBucket intMap count noNodes tentativeDistances undefined
 
-  undefined
 
 
 -- Execute requests for each of the given (node, distance) pairs

@@ -1,0 +1,3 @@
+findRequests can return a set instead of a map, so that you don't have to do the unionWith method
+(this requires changes to other methods such as relaxRequest's input as well)
+relax will also have to use atmoicModify from utils instead of the current modify

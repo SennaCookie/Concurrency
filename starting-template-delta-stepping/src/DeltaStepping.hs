@@ -253,7 +253,11 @@ relaxRequests
     -> IntMap Distance
     -> IO ()
 relaxRequests threadCount buckets distances delta req = do
-  undefined
+  
+  forkThreads threadCount (singleThreadWork . divideWork)
+
+  where
+    divideWork 
 
 
 -- Execute a single relaxation, moving the given node to the appropriate bucket
@@ -265,7 +269,24 @@ relax :: Buckets
       -> (Node, Distance) -- (w, x) in the paper
       -> IO ()
 relax buckets distances delta (node, newDistance) = do
-  undefined
+  -- if the newDistance is shorter than the current, update the TentativeDistances
+  currentDistance <- read tentativeDistances node
+  if newDistance < currentDistance
+    then write tentativeDistances node newDistance
+  else return()
+
+-- the (possibly updated) tentativeDistance of the node
+tentativeDistance <- read tentativeDistances node
+
+-- retrieve information on the buckets
+let thisBucketArray = bucketArray buckets
+let noBuckets = length thisBucketArray -- (number of buckets)
+
+-- the relative index of the bucket we need to add the node to
+let nodeBucketIndex = (tentativeDistance `div` delta) `mod` noBuckets
+
+-- insert the node with its correct tentative distance into the correct bucket
+V.modify thisBucketArray (Set.insert tentativeDistance) nodeBucketIndex
 
 
 -- -----------------------------------------------------------------------------

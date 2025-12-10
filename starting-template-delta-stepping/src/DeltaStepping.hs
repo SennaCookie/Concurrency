@@ -204,6 +204,26 @@ findRequests
     -> TentativeDistances
     -> IO (IntMap Distance)
 findRequests threadCount p graph v' distances = do
+  -- v' is the set of nodes in the bucket
+  let list = Set.toList v'
+
+  --intMap
+  intMap <- newMVar Map.empty
+  --forkThreads (searchRequests node intMap)
+
+  where
+    -- find edges to neighbouring nodes
+    -- filter edges
+    -- calculate new costs
+    -- add node cost pair to set
+    searchRequests node intMap tid = do
+      let nodeCost node = S.read tentativeDistances node
+      let edges = [(neighbour, (nodeCost node) + dist) |(cur, neighbour, dist) <- (G.out graph node), p dist]
+      let newIntMap = Map.fromList edges
+    -- get intMap
+      oldIntMap <- takeMVar intMap
+      putMVar intMap (Map.unionWith (min) oldIntMap newIntMap)
+
   undefined
 
 

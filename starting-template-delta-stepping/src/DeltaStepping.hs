@@ -253,11 +253,27 @@ relaxRequests
     -> IntMap Distance
     -> IO ()
 relaxRequests threadCount buckets distances delta req = do
+  requests <- newMVar [req]
+  let noReq = Map.size req
+  let workload = noReq `div` threadCount
   
-  forkThreads threadCount (singleThreadWork . divideWork)
+  forkThreads threadCount (singleThreadWork requests workload)
 
   where
-    divideWork 
+    singleThreadWork requests workload _ = do 
+      (work : rest) <- takeMVar requests
+      if (work : rest) == [] then putMVar requests []
+      else if Map.size work > workload then do
+        let (firstChunk : secondChunk : []) = Map.splitRoot work
+        putMVar requests (firstChunk : secondChunk : rest)
+        singleThreadWork requests workload undefined
+      else do
+        let tempIntMap = Map.mapWithKey (\key val -> (key, val)) work
+        seq (Map.map (relax buckets distances delta) tempIntMap) (singleThreadWork requests workload undefined)
+        --singleThreadWork requests workload
+
+
+-- | TODO: ADD CHECKED NODES TO A SET FOR HEAVY EDGES 
 
 
 -- Execute a single relaxation, moving the given node to the appropriate bucket
@@ -270,23 +286,23 @@ relax :: Buckets
       -> IO ()
 relax buckets distances delta (node, newDistance) = do
   -- if the newDistance is shorter than the current, update the TentativeDistances
-  currentDistance <- read tentativeDistances node
+  currentDistance <- S.read distances node
   if newDistance < currentDistance
-    then write tentativeDistances node newDistance
+    then S.write distances node newDistance
   else return()
 
 -- the (possibly updated) tentativeDistance of the node
-tentativeDistance <- read tentativeDistances node
+  tentativeDistance <- S.read distances node
 
 -- retrieve information on the buckets
-let thisBucketArray = bucketArray buckets
-let noBuckets = length thisBucketArray -- (number of buckets)
+  let thisBucketArray = bucketArray buckets
+  let noBuckets = V.length thisBucketArray -- (number of buckets)
 
 -- the relative index of the bucket we need to add the node to
-let nodeBucketIndex = (tentativeDistance `div` delta) `mod` noBuckets
+  let nodeBucketIndex = round (tentativeDistance / delta) `mod` noBuckets
 
 -- insert the node with its correct tentative distance into the correct bucket
-V.modify thisBucketArray (Set.insert tentativeDistance) nodeBucketIndex
+  V.modify thisBucketArray (Set.insert node) nodeBucketIndex
 
 
 -- -----------------------------------------------------------------------------

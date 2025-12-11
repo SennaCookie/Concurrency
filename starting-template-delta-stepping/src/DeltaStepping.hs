@@ -138,14 +138,42 @@ step
     -> TentativeDistances
     -> IO ()
 step verbose threadCount graph delta buckets distances = do
-  -- In this function, you need to implement the body of the outer while loop,
-  -- which contains another while loop.
-  -- See function 'deltaStepping' for inspiration on implementing a while loop
-  -- in a functional language.
-  -- For debugging purposes, you may want to place:
-  --   printVerbose verbose "inner step" graph delta buckets distances
-  -- in the inner loop.
-  undefined
+  -- Retrieve the first non-empty bucket
+  let thisBucketArray = bucketArray buckets 
+  thisBucketIndex <- findNextBucket buckets
+  
+  -- variable to keep track of which nodes have been handled 
+  r <- newIORef Set.empty
+  -- handle the light edges of the nodes in a bucket
+  -- terminate loop when the bucket is empty
+  let loop = do 
+        thisBucket <- V.read thisBucketArray thisBucketIndex
+        if thisBucket == Set.empty
+        then print("Im empty")
+        else do
+          -- p x = (x < delta) TODO: remove dis line
+          -- req = IO (IntMap) TODO: remove dis line
+          print("hallo")
+          req <- findRequests threadCount (\x -> x < delta) graph thisBucket distances
+          -- update r with the nodes that have been handled
+          oldR <- readIORef r
+          writeIORef r (Set.union oldR thisBucket)
+          -- empty the bucket and relax requests
+          V.write thisBucketArray thisBucketIndex Set.empty
+
+          -- Nodes may (re)enter bucket
+          relaxRequests threadCount buckets distances delta req
+          printVerbose verbose "inner step" graph delta buckets distances
+          loop
+  loop
+  
+
+  -- get all the treated nodes and do the heavy edges at once
+  print("I'm doin the heavy edges woo")
+  heavyNodes <- readIORef r
+  heavyReq <- findRequests threadCount (\x -> x >= delta) graph heavyNodes distances
+  relaxRequests threadCount buckets distances delta heavyReq
+
 
 
 -- Once all buckets are empty, the tentative distances are finalised and the
@@ -183,6 +211,7 @@ findNextBucket buckets = do
   res <- bucketNotEmpty currentFirstBucket noBuckets bucketIOVector
   
   -- Recursively check for every bucket if it's filled, starting with the first bucket
+  print("nextBucket: " ++ show res)
   return res
 
   where 
@@ -216,7 +245,10 @@ findRequests threadCount p graph v' distances = do
   forkThreads threadCount (searchRequests nodesInBucket intMap count noNodes distances)
   
   -- return the final intMap of requests
-  takeMVar intMap
+  res <- takeMVar intMap
+  print("requesrs: " ++ show res)
+  return res
+  -- TODO replace above with : takeMVar intMap
 
   where
     -- find the requests of a single node and add it to the total of requests
@@ -232,11 +264,13 @@ findRequests threadCount p graph v' distances = do
         putMVar nodesInBucket newIntSet
         -- find edges of the node and turn them into a Map of requests
         nodeCost <- S.read tentativeDistances node
-        let edges = [(neighbour, nodeCost + dist) |(cur, neighbour, dist) <- (G.out graph node), p dist]
+        let edges = [(neighbour, nodeCost + dist) |(_, neighbour, dist) <- (G.out graph node), p dist]
+        print("edges: " ++ show edges)
         let newIntMap = Map.fromList edges
         -- get intMap of requests made by other threads so far
         oldIntMap <- takeMVar intMap
         -- merge the new requests Map with the old one; in case of duplicate requests, take the shortest
+        print("union intmaps requests: " ++ show (Map.unionWith (min) oldIntMap newIntMap))
         putMVar intMap (Map.unionWith (min) oldIntMap newIntMap)
         -- recurse
         searchRequests nodesInBucket intMap count noNodes tentativeDistances undefined
@@ -261,16 +295,23 @@ relaxRequests threadCount buckets distances delta req = do
 
   where
     singleThreadWork requests workload _ = do 
-      (work : rest) <- takeMVar requests
-      if (work : rest) == [] then putMVar requests []
-      else if Map.size work > workload then do
-        let (firstChunk : secondChunk : []) = Map.splitRoot work
-        putMVar requests (firstChunk : secondChunk : rest)
+      workList <- takeMVar requests
+      if workList == [] then putMVar requests []
+      else if Map.size (head workList) > workload && Map.size (head workList) > 1 then do
+        let work = head workList
+        let rest = tail workList
+        let chunks = Map.splitRoot work
+        let firstChunk = chunks !! 0
+        let secondChunk = chunks !! 1
         singleThreadWork requests workload undefined
       else do
-        let tempIntMap = Map.mapWithKey (\key val -> (key, val)) work
-        seq (Map.map (relax buckets distances delta) tempIntMap) (singleThreadWork requests workload undefined)
-        --singleThreadWork requests workload
+        putMVar requests []
+        let work = head workList
+        --let tempIntMap = Map.mapWithKey (\key val -> (key, val)) work
+        print("single relax")
+        print(show $ Map.toList work)
+        sequence_ $ map (relax buckets distances delta) (Map.toList work) 
+        singleThreadWork requests workload undefined
 
 
 -- | TODO: ADD CHECKED NODES TO A SET FOR HEAVY EDGES 
@@ -285,6 +326,7 @@ relax :: Buckets
       -> (Node, Distance) -- (w, x) in the paper
       -> IO ()
 relax buckets distances delta (node, newDistance) = do
+  print("relax")
   -- if the newDistance is shorter than the current, update the TentativeDistances
   currentDistance <- S.read distances node
   if newDistance < currentDistance
@@ -302,6 +344,7 @@ relax buckets distances delta (node, newDistance) = do
   let nodeBucketIndex = round (tentativeDistance / delta) `mod` noBuckets
 
 -- insert the node with its correct tentative distance into the correct bucket
+  print("inserting")
   V.modify thisBucketArray (Set.insert node) nodeBucketIndex
 
 

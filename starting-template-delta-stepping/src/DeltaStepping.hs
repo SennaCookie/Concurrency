@@ -144,6 +144,8 @@ step verbose threadCount graph delta buckets distances = do
   
   -- variable to keep track of which nodes have been handled 
   r <- newIORef Set.empty
+  rr <- readIORef r
+  print("r: " ++ show rr)
   -- handle the light edges of the nodes in a bucket
   -- terminate loop when the bucket is empty
   let loop = do 
@@ -303,19 +305,15 @@ relaxRequests threadCount buckets distances delta req = do
         let chunks = Map.splitRoot work
         let firstChunk = chunks !! 0
         let secondChunk = chunks !! 1
+        putMVar requests (firstChunk : secondChunk : rest)
         singleThreadWork requests workload undefined
       else do
         putMVar requests []
         let work = head workList
-        --let tempIntMap = Map.mapWithKey (\key val -> (key, val)) work
         print("single relax")
         print(show $ Map.toList work)
         sequence_ $ map (relax buckets distances delta) (Map.toList work) 
         singleThreadWork requests workload undefined
-
-
--- | TODO: ADD CHECKED NODES TO A SET FOR HEAVY EDGES 
-
 
 -- Execute a single relaxation, moving the given node to the appropriate bucket
 -- as necessary

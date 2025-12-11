@@ -113,7 +113,8 @@ initialise graph delta source = do
 
   -- | Buckets
   let longestEdgeDistance = maximum $ map G.edgeLabel $ G.labEdges graph
-  let noBuckets = round (longestEdgeDistance / delta) + 1
+  -- the number of buckets is based off how many buckets a node can be moved up when the longest edge is added to its route
+  let noBuckets = ceiling (longestEdgeDistance / delta) + 1
   -- Create variable that keeps track of the first bucket's index (starts at 0)
   firstBucketIndex <- newIORef 0
   -- fill first bucket with the source node; rest is empty
@@ -309,8 +310,6 @@ relaxRequests threadCount buckets distances delta req = do
       else do
         putMVar requests (tail workList)
         let work = head workList
-        --print("single relax")
-        --print(show $ Map.toList work)
         sequence_ $ map (relax buckets distances delta) (Map.toList work) 
         singleThreadWork requests workload undefined
 
@@ -331,30 +330,16 @@ relax buckets distances delta (node, newDistance) = do
       S.write distances node newDistance
       let thisBucketArray = bucketArray buckets
       let noBuckets = V.length thisBucketArray -- (number of buckets)
+      --print("# buckets: " ++ show noBuckets)
 
       -- the relative index of the bucket we need to add the node to
-      let nodeBucketIndex = (round (newDistance / delta)) `mod` noBuckets
+      let nodeBucketIndex = (floor (newDistance / delta)) `mod` noBuckets
 
       -- insert the node with its correct tentative distance into the correct bucket
       --print("inserting")
       -- TODO: Not in correct bucket yet
       V.modify thisBucketArray (Set.insert node) nodeBucketIndex
   else return()
-
--- -- the (possibly updated) tentativeDistance of the node
---   tentativeDistance <- S.read distances node
-
--- -- retrieve information on the buckets
---   let thisBucketArray = bucketArray buckets
---   let noBuckets = V.length thisBucketArray -- (number of buckets)
-
--- -- the relative index of the bucket we need to add the node to
---   let nodeBucketIndex = (round (tentativeDistance / delta)) `mod` noBuckets
-
--- -- insert the node with its correct tentative distance into the correct bucket
---   print("inserting")
---   -- TODO: Not in correct bucket yet
---   V.modify thisBucketArray (Set.insert node) nodeBucketIndex
 
 
 -- -----------------------------------------------------------------------------

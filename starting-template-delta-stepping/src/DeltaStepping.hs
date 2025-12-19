@@ -107,17 +107,20 @@ initialise graph delta source = do
 
   -- | Tentative distances
   let amountOfNodes = G.noNodes graph
+
   -- generate an IOVector where all tentative distances are infinity, except the starting node, which is zero
-  -- TODO: (Remove this line if it turns out to be true: this code assumes the graph has nodes in the range [0..] where it doesn't skip any indeces)
   tentativeDistances <-  S.generate amountOfNodes (\index -> if index == source then 0 else infinity)
 
   -- | Buckets
   let longestEdgeDistance = maximum $ map G.edgeLabel $ G.labEdges graph
+
   -- the number of buckets is based off how many buckets a node can be moved up when the longest edge is added to its route
   let noBuckets = ceiling (longestEdgeDistance / delta) + 1
+
   -- Create variable that keeps track of the first bucket's index (starts at 0)
   firstBucketIndex <- newIORef 0
-  -- fill first bucket with the source node; rest is empty
+
+  -- Fill first bucket with the source node; rest is empty
   initialBucketArray <- V.generate noBuckets (\index -> if index == 0 then Set.singleton source else Set.empty)
   let buckets = Buckets{
     firstBucket = firstBucketIndex,
@@ -139,27 +142,27 @@ step
     -> TentativeDistances
     -> IO ()
 step verbose threadCount graph delta buckets distances = do
+
   -- Retrieve the first non-empty bucket
   let thisBucketArray = bucketArray buckets 
   thisBucketIndex <- findNextBucket buckets
   
   -- variable to keep track of which nodes have been handled 
   r <- newIORef Set.empty
-  --print("r: " ++ show rr)
+
   -- handle the light edges of the nodes in a bucket
   -- terminate loop when the bucket is empty
   let loop = do 
         thisBucket <- V.read thisBucketArray thisBucketIndex
         if thisBucket == Set.empty
-        then return ()--print("Im empty")
+        then return ()
         else do
-          -- p x = (x < delta) TODO: remove dis line
-          -- req = IO (IntMap) TODO: remove dis line
-          --print("hallo")
           req <- findRequests threadCount (\x -> x < delta) graph thisBucket distances
+
           -- update r with the nodes that have been handled
           oldR <- readIORef r
           writeIORef r (Set.union oldR thisBucket)
+
           -- empty the bucket and relax requests
           V.write thisBucketArray thisBucketIndex Set.empty
 
@@ -169,9 +172,7 @@ step verbose threadCount graph delta buckets distances = do
           loop
   loop
   
-
   -- get all the treated nodes and do the heavy edges at once
-  --print("I'm doin the heavy edges woo")
   heavyNodes <- readIORef r
   heavyReq <- findRequests threadCount (\x -> x >= delta) graph heavyNodes distances
   relaxRequests threadCount buckets distances delta heavyReq
@@ -180,9 +181,9 @@ step verbose threadCount graph delta buckets distances = do
 
 -- Once all buckets are empty, the tentative distances are finalised and the
 -- algorithm terminates.
--- TODO: Maybe ? I didn't finalize all tentative distances. IDK if ur supposed to do that explicitly here
 allBucketsEmpty :: Buckets -> IO Bool
 allBucketsEmpty buckets = do
+
   -- get information about the buckets
   let thisBucketArray = bucketArray buckets
       noBuckets = V.length thisBucketArray -- number of buckets
@@ -200,20 +201,16 @@ allBucketsEmpty buckets = do
             then theseBucketsEmpty (index + 1) noBuckets thisBucketArray
             else return False -- if any bucket is not empty, stop recursing and return False
 
-
-
 -- Return the index of the first non-empty bucket.
 -- Assumes that there is at least one non-empty bucket remaining.
---
 findNextBucket :: Buckets -> IO Int
 findNextBucket buckets = do
   currentFirstBucket <- readIORef $ firstBucket buckets -- the real index
   let bucketIOVector = bucketArray buckets
       noBuckets = V.length bucketIOVector -- number of buckets
-  res <- bucketNotEmpty currentFirstBucket noBuckets bucketIOVector
   
   -- Recursively check for every bucket if it's filled, starting with the first bucket
-  --print("nextBucket: " ++ show res)
+  res <- bucketNotEmpty currentFirstBucket noBuckets bucketIOVector
   return res
 
   where 
@@ -226,7 +223,6 @@ findNextBucket buckets = do
 
 
 -- Create requests of (node, distance) pairs that fulfil the given predicate
---
 findRequests
     :: Int
     -> (Distance -> Bool)
@@ -235,11 +231,14 @@ findRequests
     -> TentativeDistances
     -> IO (IntMap Distance)
 findRequests threadCount p graph v' distances = do
+  
   -- v' is the set of nodes in the bucket
   let noNodes = Set.size v'
   nodesInBucket <- newMVar v'
+
   -- a counter that keeps track of which node is  being handled
   count <- newMVar 0
+
   -- at the start of the method, the Map of requests is empty
   -- threads will add the requests they find to this intMap
   intMap <- newMVar Map.empty
@@ -247,40 +246,41 @@ findRequests threadCount p graph v' distances = do
   forkThreads threadCount (searchRequests nodesInBucket intMap count noNodes distances)
   
   -- return the final intMap of requests
-  res <- takeMVar intMap
-  --print("requesrs: " ++ show res)
-  return res
-  -- TODO replace above with : takeMVar intMap
+  takeMVar intMap
 
   where
+
     -- find the requests of a single node and add it to the total of requests
     searchRequests nodesInBucket intMap count noNodes tentativeDistances _ = do
       currentCount <- takeMVar count
+
       -- if all modes have been checked, terminate thread
       if currentCount == noNodes then putMVar count currentCount
       else do
         putMVar count (currentCount + 1)
+
         -- take a (the lowest indexed) node from the set 
         nodeSet <- takeMVar nodesInBucket
         let (node, newIntSet) = Set.deleteFindMin nodeSet
         putMVar nodesInBucket newIntSet
+
         -- find edges of the node and turn them into a Map of requests
         nodeCost <- S.read tentativeDistances node
         let edges = [(neighbour, nodeCost + dist) |(_, neighbour, dist) <- (G.out graph node), p dist]
-        --print("edges: " ++ show edges)
         let newIntMap = Map.fromList edges
+
         -- get intMap of requests made by other threads so far
         oldIntMap <- takeMVar intMap
+
         -- merge the new requests Map with the old one; in case of duplicate requests, take the shortest
-        --print("union intmaps requests: " ++ show (Map.unionWith (min) oldIntMap newIntMap))
         putMVar intMap (Map.unionWith (min) oldIntMap newIntMap)
+
         -- recurse
         searchRequests nodesInBucket intMap count noNodes tentativeDistances undefined
 
 
 
 -- Execute requests for each of the given (node, distance) pairs
---
 relaxRequests
     :: Int
     -> Buckets
@@ -297,19 +297,29 @@ relaxRequests threadCount buckets distances delta req = do
 
   where
     singleThreadWork requests workload _ = do 
+
+      -- get the list of intmaps
       workList <- takeMVar requests
+
+      -- If the list is empty, fill the mvar with an empty list
       if workList == [] then putMVar requests []
+
+      -- If the fist intmap is too big, split it and add the parts to the list and put it back in the mvar
+      -- If the first intmap is small enough, put the rest of the intmaps back into the mvar and relax the requests
       else if Map.size (head workList) > workload && Map.size (head workList) > 1 then do
         let work = head workList
         let rest = tail workList
         let chunks = Map.splitRoot work
         let firstChunk = chunks !! 0
         let secondChunk = chunks !! 1
+        
         putMVar requests (firstChunk : secondChunk : rest)
         singleThreadWork requests workload undefined
+      
       else do
         putMVar requests (tail workList)
         let work = head workList
+        
         sequence_ $ map (relax buckets distances delta) (Map.toList work) 
         singleThreadWork requests workload undefined
 
@@ -322,7 +332,7 @@ relax :: Buckets
       -> (Node, Distance) -- (w, x) in the paper
       -> IO ()
 relax buckets distances delta (node, newDistance) = do
-  --print("relax")
+
   -- if the newDistance is shorter than the current, update the TentativeDistances
   currentDistance <- S.read distances node
   if newDistance < currentDistance
@@ -330,14 +340,11 @@ relax buckets distances delta (node, newDistance) = do
       S.write distances node newDistance
       let thisBucketArray = bucketArray buckets
       let noBuckets = V.length thisBucketArray -- (number of buckets)
-      --print("# buckets: " ++ show noBuckets)
 
       -- the relative index of the bucket we need to add the node to
       let nodeBucketIndex = (floor (newDistance / delta)) `mod` noBuckets
 
       -- insert the node with its correct tentative distance into the correct bucket
-      --print("inserting")
-      -- TODO: Not in correct bucket yet
       V.modify thisBucketArray (Set.insert node) nodeBucketIndex
   else return()
 
@@ -352,7 +359,6 @@ relax buckets distances delta (node, newDistance) = do
 
 type TentativeDistances = S.IOVector Distance
 
--- TODO: Make sure indexing of firstBucket starts at 0, but I'm pretty sure it does
 data Buckets = Buckets
   { firstBucket   :: {-# UNPACK #-} !(IORef Int)           -- real index of the first bucket (j)
   , bucketArray   :: {-# UNPACK #-} !(V.IOVector IntSet)   -- cyclic array of buckets

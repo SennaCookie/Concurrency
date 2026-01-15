@@ -140,7 +140,8 @@ propagateR = error "TODO: propagateR"
 -- should be:
 -- Vector (Z :. 6) [False,False,True,False,True,True]
 shiftHeadFlagsL :: Acc (Vector Bool) -> Acc (Vector Bool)
-shiftHeadFlagsL = error "TODO: shiftHeadFlagsL"
+shiftHeadFlagsL boolList = scatter (generate (I1 (length boolList)) (\(I1 i) -> i)) (generate (I1 (length boolList)) (\_ -> True_)) (tail boolList)
+  --error "TODO: shiftHeadFlagsL"
 
 -- >>> import Data.Array.Accelerate.Interpreter
 -- >>> run $ shiftHeadFlagsR (use (fromList (Z :. 6) [True,False,False,True,False,False]))
@@ -148,7 +149,8 @@ shiftHeadFlagsL = error "TODO: shiftHeadFlagsL"
 -- should be:
 -- Vector (Z :. 6) [True,True,False,False,True,False]
 shiftHeadFlagsR :: Acc (Vector Bool) -> Acc (Vector Bool)
-shiftHeadFlagsR = error "TODO: shiftHeadFlagsR"
+shiftHeadFlagsR boolList = scatter (generate (I1 (length boolList)) (\(I1 i) -> i + 1)) (generate (I1 (length boolList)) (\_ -> True_)) (init boolList)
+  --error "TODO: shiftHeadFlagsR"
 
 -- >>> import Data.Array.Accelerate.Interpreter
 -- >>> let flags  = fromList (Z :. 9) [True,False,False,True,True,False,False,False,True]

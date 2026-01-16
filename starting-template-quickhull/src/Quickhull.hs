@@ -165,7 +165,8 @@ shiftHeadFlagsR boolList = scatter (generate (I1 (length boolList)) (\(I1 i) -> 
 -- non-associative combination functions may seem to work fine here -- only to
 -- fail spectacularly when testing with a parallel backend on larger inputs. ;)
 segmentedScanl1 :: Elt a => (Exp a -> Exp a -> Exp a) -> Acc (Vector Bool) -> Acc (Vector a) -> Acc (Vector a)
-segmentedScanl1 = error "TODO: segmentedScanl1"
+segmentedScanl1 func boolList vals = map (\(T2 b v) -> v) (scanl1 (segmented func) (zip boolList vals))
+  --error "TODO: segmentedScanl1"
 
 -- >>> import Data.Array.Accelerate.Interpreter
 -- >>> let flags  = fromList (Z :. 9) [True,False,False,True,True,False,False,False,True]
@@ -176,7 +177,8 @@ segmentedScanl1 = error "TODO: segmentedScanl1"
 -- >>> fromList (Z :. 9) [1, 2+3+4, 3+4, 4, 5, 6+7+8+9, 7+8+9, 8+9, 9] :: Vector Int
 -- Vector (Z :. 9) [1,9,7,4,5,30,24,17,9]
 segmentedScanr1 :: Elt a => (Exp a -> Exp a -> Exp a) -> Acc (Vector Bool) -> Acc (Vector a) -> Acc (Vector a)
-segmentedScanr1 = error "TODO: segmentedScanr1"
+segmentedScanr1 func boolList vals = map (\(T2 b v) -> v) (scanr1 (\ a b -> (segmented func) b a) (zip boolList vals))
+  --error "TODO: segmentedScanr1"
 
 
 -- Given utility functions

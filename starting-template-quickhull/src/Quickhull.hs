@@ -122,7 +122,8 @@ quickhull =
 -- should be:
 -- Vector (Z :. 9) [1,1,1,4,5,5,5,5,9]
 propagateL :: Elt a => Acc (Vector Bool) -> Acc (Vector a) -> Acc (Vector a)
-propagateL = error "TODO: propagateL"
+propagateL flags values = segmentedScanl1 (\ a b -> a) flags values
+  --error "TODO: propagateL"
 
 -- >>> import Data.Array.Accelerate.Interpreter
 -- >>> let flags  = fromList (Z :. 9) [True,False,False,True,True,False,False,False,True]
@@ -132,7 +133,8 @@ propagateL = error "TODO: propagateL"
 -- should be:
 -- Vector (Z :. 9) [1,4,4,4,5,9,9,9,9]
 propagateR :: Elt a => Acc (Vector Bool) -> Acc (Vector a) -> Acc (Vector a)
-propagateR = error "TODO: propagateR"
+propagateR flags values = segmentedScanr1 (\ a b -> a) flags values
+  --error "TODO: propagateR"
 
 -- >>> import Data.Array.Accelerate.Interpreter
 -- >>> run $ shiftHeadFlagsL (use (fromList (Z :. 6) [False,False,False,True,False,True]))
@@ -140,7 +142,8 @@ propagateR = error "TODO: propagateR"
 -- should be:
 -- Vector (Z :. 6) [False,False,True,False,True,True]
 shiftHeadFlagsL :: Acc (Vector Bool) -> Acc (Vector Bool)
-shiftHeadFlagsL = error "TODO: shiftHeadFlagsL"
+shiftHeadFlagsL flags = scatter (generate (I1 (length flags)) (\(I1 i) -> i)) (generate (I1 (length flags)) (\_ -> True_)) (tail flags)
+  --error "TODO: shiftHeadFlagsL"
 
 -- >>> import Data.Array.Accelerate.Interpreter
 -- >>> run $ shiftHeadFlagsR (use (fromList (Z :. 6) [True,False,False,True,False,False]))
@@ -148,7 +151,8 @@ shiftHeadFlagsL = error "TODO: shiftHeadFlagsL"
 -- should be:
 -- Vector (Z :. 6) [True,True,False,False,True,False]
 shiftHeadFlagsR :: Acc (Vector Bool) -> Acc (Vector Bool)
-shiftHeadFlagsR = error "TODO: shiftHeadFlagsR"
+shiftHeadFlagsR flags = scatter (generate (I1 (length flags)) (\(I1 i) -> i + 1)) (generate (I1 (length flags)) (\_ -> True_)) (init flags)
+  --error "TODO: shiftHeadFlagsR"
 
 -- >>> import Data.Array.Accelerate.Interpreter
 -- >>> let flags  = fromList (Z :. 9) [True,False,False,True,True,False,False,False,True]
@@ -163,7 +167,8 @@ shiftHeadFlagsR = error "TODO: shiftHeadFlagsR"
 -- non-associative combination functions may seem to work fine here -- only to
 -- fail spectacularly when testing with a parallel backend on larger inputs. ;)
 segmentedScanl1 :: Elt a => (Exp a -> Exp a -> Exp a) -> Acc (Vector Bool) -> Acc (Vector a) -> Acc (Vector a)
-segmentedScanl1 = error "TODO: segmentedScanl1"
+segmentedScanl1 func flags values = map (\(T2 f v) -> v) (scanl1 (segmented func) (zip flags values))
+  --error "TODO: segmentedScanl1"
 
 -- >>> import Data.Array.Accelerate.Interpreter
 -- >>> let flags  = fromList (Z :. 9) [True,False,False,True,True,False,False,False,True]
@@ -174,7 +179,8 @@ segmentedScanl1 = error "TODO: segmentedScanl1"
 -- >>> fromList (Z :. 9) [1, 2+3+4, 3+4, 4, 5, 6+7+8+9, 7+8+9, 8+9, 9] :: Vector Int
 -- Vector (Z :. 9) [1,9,7,4,5,30,24,17,9]
 segmentedScanr1 :: Elt a => (Exp a -> Exp a -> Exp a) -> Acc (Vector Bool) -> Acc (Vector a) -> Acc (Vector a)
-segmentedScanr1 = error "TODO: segmentedScanr1"
+segmentedScanr1 func flags values = map (\(T2 f v) -> v) (scanr1 (\ a b -> (segmented func) b a) (zip flags values))
+  --error "TODO: segmentedScanr1"
 
 
 -- Given utility functions

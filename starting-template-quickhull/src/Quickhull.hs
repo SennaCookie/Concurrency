@@ -73,24 +73,47 @@ initialPartition points =
       isLower :: Acc (Vector Bool)
       isLower = map (pointIsRightOfLine (T2 p1 p2)) points
 
+      -- THIS MIGHT BE WRONG. THIS IS MEANT FOR A GATHER BUT MAYBE SCATTER IS BETTER
       -- Create a vector with numbers that can function as indeces
       -- Zip this vector with the boolList of isUpper and filter the True_ values
+      -- FILTER IS NOT ALLOWED
       -- This results in a filterd Vector with tuples and a shape (the amount of trues)
       -- Unpack the tuples and only keep the indeces 
       -- The indeces are the indeces of the spot the flags had in the original array
+      --   -- error "TODO: number of points below the line and their relative index"
+      -- offsetUpper :: Acc (Vector Int)
+      -- countUpper  :: Acc (Scalar Int)
+      -- T2 offsetUpper countUpper =  T2 (map (\(T2 _ i) -> i) filteredUp) cntUp
+      -- T2 filteredUp cntUp = filter (\(T2 b _) -> b == True_) (zip isUpper (generate (I1 (length isUpper)) (\(I1 i) -> i)))
+
+      -- offsetLower :: Acc (Vector Int)
+      -- countLower  :: Acc (Scalar Int)
+      -- T2 offsetLower countLower = T2 (map (\(T2 _ i) -> i) filteredLow) cntLow
+      -- T2 filteredLow cntLow = filter (\(T2 b _) -> b == True_) (zip isLower (generate (I1 (length isLower)) (\(I1 i) -> i)))
+      --   -- error "TODO: number of points below the line and their relative index"
+
+
+
+      -- THE SCATTER VERSION
       offsetUpper :: Acc (Vector Int)
       countUpper  :: Acc (Scalar Int)
-      T2 offsetUpper countUpper =  T2 (map (\(T2 _ i) -> i) filteredUp) cntUp
-      T2 filteredUp cntUp = filter (\(T2 b _) -> b == True_) (zip isUpper (generate (I1 (length isUpper)) (\(I1 i) -> i)))
+      T2 offsetUpper countUpper = T2 (scanl (+) 1 (boolToInt isUpper)) (sum (boolToInt isUpper))
+      
+      boolToInt :: Acc (Vector Bool) -> Acc (Vector Int)
+      boolToInt boolList = map (\b -> if b == True_ then 1 else 0) boolList
 
       offsetLower :: Acc (Vector Int)
       countLower  :: Acc (Scalar Int)
-      T2 offsetLower countLower = T2 (map (\(T2 _ i) -> i) filteredLow) cntLow
-      T2 filteredLow cntLow = filter (\(T2 b _) -> b == True_) (zip isLower (generate (I1 (length isLower)) (\(I1 i) -> i)))
+      -- start the indeces of the lower points after P1 the upper points and p2 (so countUpper + 2)
+      T2 offsetLower countLower = T2 (scanl (+) (the countUpper + 2) (boolToInt isLower)) (sum (boolToInt isLower))
         -- error "TODO: number of points below the line and their relative index"
 
       destination :: Acc (Vector (Maybe DIM1))
       destination = error "TODO: compute the index in the result array for each point (if it is present)"
+        -- check all points with map
+        -- check if point is p1 or p2
+        -- check if point is left of line -> get right index from offset
+      --getDestiny (T2 val index) = if val == p1 then 
 
       newPoints :: Acc (Vector Point)
       newPoints = points

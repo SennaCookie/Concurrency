@@ -60,31 +60,45 @@ initialPartition :: Acc (Vector Point) -> Acc SegmentedPoints
 initialPartition points =
   let
       p1, p2 :: Exp Point
-      p1 = error "TODO: locate the left-most point"
-      p2 = error "TODO: locate the right-most point"
+      -- (lowest) left-most point
+      p1 = the $ minimum points
+      -- (highest) right-most point
+      p2 = the $ maximum points 
 
+      -- all points above the line
       isUpper :: Acc (Vector Bool)
-      isUpper = error "TODO: determine which points lie above the line (p₁, p₂)"
+      isUpper = map (pointIsLeftOfLine (T2 p1 p2)) points
 
+      -- all points below the line
       isLower :: Acc (Vector Bool)
-      isLower = error "TODO: determine which points lie below the line (p₁, p₂)"
+      isLower = map (pointIsRightOfLine (T2 p1 p2)) points
 
+      -- Create a vector with numbers that can function as indeces
+      -- Zip this vector with the boolList of isUpper and filter the True_ values
+      -- This results in a filterd Vector with tuples and a shape (the amount of trues)
+      -- Unpack the tuples and only keep the indeces 
+      -- The indeces are the indeces of the spot the flags had in the original array
       offsetUpper :: Acc (Vector Int)
       countUpper  :: Acc (Scalar Int)
-      T2 offsetUpper countUpper = error "TODO: number of points above the line and their relative index"
+      T2 offsetUpper countUpper =  T2 (map (\(T2 _ i) -> i) filteredUp) cntUp
+      T2 filteredUp cntUp = filter (\(T2 b _) -> b == True_) (zip isUpper (generate (I1 (length isUpper)) (\(I1 i) -> i)))
 
       offsetLower :: Acc (Vector Int)
       countLower  :: Acc (Scalar Int)
-      T2 offsetLower countLower = error "TODO: number of points below the line and their relative index"
+      T2 offsetLower countLower = T2 (map (\(T2 _ i) -> i) filteredLow) cntLow
+      T2 filteredLow cntLow = filter (\(T2 b _) -> b == True_) (zip isLower (generate (I1 (length isLower)) (\(I1 i) -> i)))
+        -- error "TODO: number of points below the line and their relative index"
 
       destination :: Acc (Vector (Maybe DIM1))
       destination = error "TODO: compute the index in the result array for each point (if it is present)"
 
       newPoints :: Acc (Vector Point)
-      newPoints = error "TODO: place each point into its corresponding segment of the result"
+      newPoints = points
+        --error "TODO: place each point into its corresponding segment of the result"
 
       headFlags :: Acc (Vector Bool)
-      headFlags = error "TODO: create head flags array demarcating the initial segments"
+      headFlags = isLower
+        --error "TODO: create head flags array demarcating the initial segments"
   in
   T2 headFlags newPoints
 
@@ -123,7 +137,6 @@ quickhull =
 -- Vector (Z :. 9) [1,1,1,4,5,5,5,5,9]
 propagateL :: Elt a => Acc (Vector Bool) -> Acc (Vector a) -> Acc (Vector a)
 propagateL flags values = segmentedScanl1 (\ a b -> a) flags values
-  --error "TODO: propagateL"
 
 -- >>> import Data.Array.Accelerate.Interpreter
 -- >>> let flags  = fromList (Z :. 9) [True,False,False,True,True,False,False,False,True]
@@ -134,7 +147,6 @@ propagateL flags values = segmentedScanl1 (\ a b -> a) flags values
 -- Vector (Z :. 9) [1,4,4,4,5,9,9,9,9]
 propagateR :: Elt a => Acc (Vector Bool) -> Acc (Vector a) -> Acc (Vector a)
 propagateR flags values = segmentedScanr1 (\ a b -> a) flags values
-  --error "TODO: propagateR"
 
 -- >>> import Data.Array.Accelerate.Interpreter
 -- >>> run $ shiftHeadFlagsL (use (fromList (Z :. 6) [False,False,False,True,False,True]))
@@ -143,7 +155,6 @@ propagateR flags values = segmentedScanr1 (\ a b -> a) flags values
 -- Vector (Z :. 6) [False,False,True,False,True,True]
 shiftHeadFlagsL :: Acc (Vector Bool) -> Acc (Vector Bool)
 shiftHeadFlagsL flags = scatter (generate (I1 (length flags)) (\(I1 i) -> i)) (generate (I1 (length flags)) (\_ -> True_)) (tail flags)
-  --error "TODO: shiftHeadFlagsL"
 
 -- >>> import Data.Array.Accelerate.Interpreter
 -- >>> run $ shiftHeadFlagsR (use (fromList (Z :. 6) [True,False,False,True,False,False]))
@@ -152,7 +163,6 @@ shiftHeadFlagsL flags = scatter (generate (I1 (length flags)) (\(I1 i) -> i)) (g
 -- Vector (Z :. 6) [True,True,False,False,True,False]
 shiftHeadFlagsR :: Acc (Vector Bool) -> Acc (Vector Bool)
 shiftHeadFlagsR flags = scatter (generate (I1 (length flags)) (\(I1 i) -> i + 1)) (generate (I1 (length flags)) (\_ -> True_)) (init flags)
-  --error "TODO: shiftHeadFlagsR"
 
 -- >>> import Data.Array.Accelerate.Interpreter
 -- >>> let flags  = fromList (Z :. 9) [True,False,False,True,True,False,False,False,True]
@@ -168,7 +178,6 @@ shiftHeadFlagsR flags = scatter (generate (I1 (length flags)) (\(I1 i) -> i + 1)
 -- fail spectacularly when testing with a parallel backend on larger inputs. ;)
 segmentedScanl1 :: Elt a => (Exp a -> Exp a -> Exp a) -> Acc (Vector Bool) -> Acc (Vector a) -> Acc (Vector a)
 segmentedScanl1 func flags values = map (\(T2 f v) -> v) (scanl1 (segmented func) (zip flags values))
-  --error "TODO: segmentedScanl1"
 
 -- >>> import Data.Array.Accelerate.Interpreter
 -- >>> let flags  = fromList (Z :. 9) [True,False,False,True,True,False,False,False,True]
@@ -180,7 +189,6 @@ segmentedScanl1 func flags values = map (\(T2 f v) -> v) (scanl1 (segmented func
 -- Vector (Z :. 9) [1,9,7,4,5,30,24,17,9]
 segmentedScanr1 :: Elt a => (Exp a -> Exp a -> Exp a) -> Acc (Vector Bool) -> Acc (Vector a) -> Acc (Vector a)
 segmentedScanr1 func flags values = map (\(T2 f v) -> v) (scanr1 (\ a b -> (segmented func) b a) (zip flags values))
-  --error "TODO: segmentedScanr1"
 
 
 -- Given utility functions
@@ -188,6 +196,13 @@ segmentedScanr1 func flags values = map (\(T2 f v) -> v) (scanr1 (\ a b -> (segm
 
 pointIsLeftOfLine :: Exp Line -> Exp Point -> Exp Bool
 pointIsLeftOfLine (T2 (T2 x1 y1) (T2 x2 y2)) (T2 x y) = nx * x + ny * y > c
+  where
+    nx = y1 - y2
+    ny = x2 - x1
+    c  = nx * x1 + ny * y1
+
+pointIsRightOfLine :: Exp Line -> Exp Point -> Exp Bool
+pointIsRightOfLine (T2 (T2 x1 y1) (T2 x2 y2)) (T2 x y) = nx * x + ny * y < c
   where
     nx = y1 - y2
     ny = x2 - x1

@@ -1,0 +1,8 @@
+2.
+
+It does not work correctly. Geert is trying to implement a signal, so that when a lookup call can't find a value, it will wait until a change happens in the Map, and then try to lookup again.
+They do this by having a lookup wait until a signal MVar is filled (which happens when a value is inserted). Since this value is taken and not put back though, it can cause issues when multiple threads are waiting for a signal. When one thread receives the signal, it will take the MVar, making it so the other thread never sees it and keeps waiting, even though a change has occured. This is not what is supposed to happen.
+
+3.
+Maurice doesn't take into account that the GPU has error detection and compares the output to the input, after which it will see that the result is not exactly what was expected.
+In the special case where you might be able to instruct a GPU to not check for errors, this code would work the way Maurice describes, because it doesn't look at the input anymore

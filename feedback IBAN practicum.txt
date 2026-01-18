@@ -1,0 +1,9 @@
+Feedback:
+
+Count mode: 30 points
+
+
+List mode: 30 points
+
+
+Search mode: 40 points

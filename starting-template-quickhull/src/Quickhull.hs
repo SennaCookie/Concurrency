@@ -173,7 +173,7 @@ partition (T2 headFlags points) = let
 -- no undecided points remaining. What remains is the convex hull.
 --
 quickhull :: Acc (Vector Point) -> Acc (Vector Point)
-quickhull = partition . initialPartition
+quickhull = (\(T2 flags points) -> points) . partition . initialPartition
 
 
 -- Helper functions

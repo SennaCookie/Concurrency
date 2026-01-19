@@ -101,15 +101,14 @@ initialPartition points =
       newPoints :: Acc (Vector Point)
       -- The size of the newpoints array is the size of p1, p2, the upper points and the lower point and an extra p1. (So the countUpper + the countLower + 3)
       -- The default value will be P1 so that an extra P1 is added to the end of the array.
-      newPoints = permute (const) (generate (I1 (the countUpper + the countLower + 3)) (\_ -> p1)) (\(I1 i) -> destination !! i) points 
-        --error "TODO: place each point into its corresponding segment of the result"
+      -- place each point into its corresponding segment of the result"
+      newPoints = permute (const) (generate (I1 (the countUpper + the countLower + 3)) (\_ -> p1)) (\(I1 i) -> destination !! i) points
 
+      -- Create head flags array demarcating the initial segments
       headFlags :: Acc (Vector Bool)
       headFlags = map (\p -> p == p1 || p == p2) newPoints
-        -- Create head flags array demarcating the initial segments"
   in
   T2 headFlags newPoints
-
 
 -- The core of the algorithm processes all line segments at once in
 -- data-parallel. This is similar to the previous partitioning step, except
@@ -119,18 +118,53 @@ initialPartition points =
 -- p₃. This point is on the convex hull. Then determine whether each point
 -- p in that segment lies to the left of (p₁,p₃) or the right of (p₂,p₃).
 -- These points are undecided.
---
+
 partition :: Acc SegmentedPoints -> Acc SegmentedPoints
-partition (T2 headFlags points) =
-  error "TODO: partition"
+partition (T2 headFlags points) = let
+  
+  -- Indeces denoting the start of every point's segment
+  trueFlagIndecesL :: Acc (Vector (Int))
+  trueFlagIndecesL = propagateL headFlags (generate (I1 (length points)) (\(I1 i) -> i))
+
+  -- Indeces denoting the end of every point's segment
+  trueFlagIndecesR :: Acc (Vector (Int))
+  trueFlagIndecesR = propagateR headFlags (generate (I1 (length points)) (\(I1 i) -> i))
+
+  -- Array of all points, stored together with the start- and end-indicators of their segment 
+  segmentedPoints = zip3 points trueFlagIndecesL trueFlagIndecesR
+
+  -- The function compares the distances of two points to the line in question and returns the point with the biggest distance
+  getBiggerDistance (T3 p s e) (T3 p2 s2 e2) = if (nonNormalizedDistance (T2 s e) p) > (nonNormalizedDistance (T2 s2 e2) p2) then (T3 p s e)
+                                               else (T3 p2 s2 e2)
+  
+  -- Unzip the vector of triples
+  T3 vecP3 vecStarts vecEnd = segmentedScanl1 (getBiggerDistance) segmentedPoints headFlags
+  (t, f, f, f, f, t, f, f, f, f, f, f, t)
+  (p1,p1,p1,p3,p3,p2,p2,p2,p2,p3,p3,p3,p1)
+  -- p3 of each segment is to the left of every true
+  -- maybe: get index of each p3 in original points array
+  -- 
+
+
+  segmentP1, segmentP2, segmentP3 :: Exp Point
+  segmentP1 = 
+  segmentP2 = 
+  segmentP3 = (nonNormalizedDistance (T2 segmentP1 segmentP2)) 
+
+  
+
+  in 
+  -- Terminate if there are no more undecided points
+  if (and headFlags)
+    then (T2 headFlags points)
+  else partition (T2 newHeadFlags newPoints)
 
 
 -- The completed algorithm repeatedly partitions the points until there are
 -- no undecided points remaining. What remains is the convex hull.
 --
 quickhull :: Acc (Vector Point) -> Acc (Vector Point)
-quickhull =
-  error "TODO: quickhull"
+quickhull = partition $ initialPartion
 
 
 -- Helper functions

@@ -73,28 +73,6 @@ initialPartition points =
       isLower :: Acc (Vector Bool)
       isLower = map (pointIsRightOfLine (T2 p1 p2)) points
 
-      -- THIS MIGHT BE WRONG. THIS IS MEANT FOR A GATHER BUT MAYBE SCATTER IS BETTER
-      -- Create a vector with numbers that can function as indeces
-      -- Zip this vector with the boolList of isUpper and filter the True_ values
-      -- FILTER IS NOT ALLOWED
-      -- This results in a filterd Vector with tuples and a shape (the amount of trues)
-      -- Unpack the tuples and only keep the indeces 
-      -- The indeces are the indeces of the spot the flags had in the original array
-      --   -- error "TODO: number of points below the line and their relative index"
-      -- offsetUpper :: Acc (Vector Int)
-      -- countUpper  :: Acc (Scalar Int)
-      -- T2 offsetUpper countUpper =  T2 (map (\(T2 _ i) -> i) filteredUp) cntUp
-      -- T2 filteredUp cntUp = filter (\(T2 b _) -> b == True_) (zip isUpper (generate (I1 (length isUpper)) (\(I1 i) -> i)))
-
-      -- offsetLower :: Acc (Vector Int)
-      -- countLower  :: Acc (Scalar Int)
-      -- T2 offsetLower countLower = T2 (map (\(T2 _ i) -> i) filteredLow) cntLow
-      -- T2 filteredLow cntLow = filter (\(T2 b _) -> b == True_) (zip isLower (generate (I1 (length isLower)) (\(I1 i) -> i)))
-      --   -- error "TODO: number of points below the line and their relative index"
-
-
-
-      -- THE SCATTER VERSION
       offsetUpper :: Acc (Vector Int)
       countUpper  :: Acc (Scalar Int)
       T2 offsetUpper countUpper = T2 (scanl (+) 1 (boolToInt isUpper)) (sum (boolToInt isUpper))
@@ -106,22 +84,29 @@ initialPartition points =
       countLower  :: Acc (Scalar Int)
       -- start the indeces of the lower points after P1 the upper points and p2 (so countUpper + 2)
       T2 offsetLower countLower = T2 (scanl (+) (the countUpper + 2) (boolToInt isLower)) (sum (boolToInt isLower))
-        -- error "TODO: number of points below the line and their relative index"
+        -- number of points below the line and their relative index
 
       destination :: Acc (Vector (Maybe DIM1))
-      destination = error "TODO: compute the index in the result array for each point (if it is present)"
+      destination = map getDestiny (zip points (generate (I1 (length points))  (\(I1 i) -> i)))
+        -- compute the index in the result array for each point (if it is present)
         -- check all points with map
         -- check if point is p1 or p2
         -- check if point is left of line -> get right index from offset
-      --getDestiny (T2 val index) = if val == p1 then 
+      getDestiny (T2 val index) = if val == p1 then Just_ (I1 0)
+                                  else if (val == p2) then Just_ (I1 (the (countUpper) + 1))
+                                  else if (pointIsLeftOfLine (T2 p1 p2) val) then Just_ (I1 (offsetUpper !! index))
+                                  else if (pointIsRightOfLine (T2 p1 p2) val) then Just_ (I1 (offsetLower !! index))
+                                  else Nothing_
 
       newPoints :: Acc (Vector Point)
-      newPoints = points
+      -- The size of the newpoints array is the size of p1, p2, the upper points and the lower point and an extra p1. (So the countUpper + the countLower + 3)
+      -- The default value will be P1 so that an extra P1 is added to the end of the array.
+      newPoints = permute (const) (generate (I1 (the countUpper + the countLower + 3)) (\_ -> p1)) (\(I1 i) -> destination !! i) points 
         --error "TODO: place each point into its corresponding segment of the result"
 
       headFlags :: Acc (Vector Bool)
-      headFlags = isLower
-        --error "TODO: create head flags array demarcating the initial segments"
+      headFlags = map (\p -> p == p1 || p == p2) newPoints
+        -- Create head flags array demarcating the initial segments"
   in
   T2 headFlags newPoints
 
@@ -226,6 +211,13 @@ pointIsLeftOfLine (T2 (T2 x1 y1) (T2 x2 y2)) (T2 x y) = nx * x + ny * y > c
 
 pointIsRightOfLine :: Exp Line -> Exp Point -> Exp Bool
 pointIsRightOfLine (T2 (T2 x1 y1) (T2 x2 y2)) (T2 x y) = nx * x + ny * y < c
+  where
+    nx = y1 - y2
+    ny = x2 - x1
+    c  = nx * x1 + ny * y1
+
+pointIsOnTheLine :: Exp Line -> Exp Point -> Exp Bool
+pointIsOnTheLine (T2 (T2 x1 y1) (T2 x2 y2)) (T2 x y) = nx * x + ny * y == c
   where
     nx = y1 - y2
     ny = x2 - x1

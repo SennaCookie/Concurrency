@@ -75,15 +75,12 @@ initialPartition points =
 
       offsetUpper :: Acc (Vector Int)
       countUpper  :: Acc (Scalar Int)
-      T2 offsetUpper countUpper = T2 (scanl (+) 1 (boolToInt isUpper)) (sum (boolToInt isUpper))
-      
-      boolToInt :: Acc (Vector Bool) -> Acc (Vector Int)
-      boolToInt boolList = map (\b -> if b == True_ then 1 else 0) boolList
+      T2 offsetUpper countUpper = T2 (scanl (+) 1 (bool2Int isUpper)) (sum (bool2Int isUpper))
 
       offsetLower :: Acc (Vector Int)
       countLower  :: Acc (Scalar Int)
       -- start the indeces of the lower points after P1 the upper points and p2 (so countUpper + 2)
-      T2 offsetLower countLower = T2 (scanl (+) (the countUpper + 2) (boolToInt isLower)) (sum (boolToInt isLower))
+      T2 offsetLower countLower = T2 (scanl (+) (the countUpper + 2) (bool2Int isLower)) (sum (bool2Int isLower))
         -- number of points below the line and their relative index
 
       destination :: Acc (Vector (Maybe DIM1))
@@ -92,10 +89,10 @@ initialPartition points =
         -- check all points with map
         -- check if point is p1 or p2
         -- check if point is left of line -> get right index from offset
-      getDestiny (T2 val index) = if val == p1 then Just_ (I1 0)
-                                  else if (val == p2) then Just_ (I1 (the (countUpper) + 1))
-                                  else if (pointIsLeftOfLine (T2 p1 p2) val) then Just_ (I1 (offsetUpper !! index))
+      getDestiny (T2 val index) = if (pointIsLeftOfLine (T2 p1 p2) val) then Just_ (I1 (offsetUpper !! index))
                                   else if (pointIsRightOfLine (T2 p1 p2) val) then Just_ (I1 (offsetLower !! index))
+                                  else if val == p1 then Just_ (I1 0)
+                                  else if (val == p2) then Just_ (I1 (the (countUpper) + 1))
                                   else Nothing_
 
       newPoints :: Acc (Vector Point)
@@ -123,40 +120,51 @@ partition :: Acc SegmentedPoints -> Acc SegmentedPoints
 partition (T2 headFlags points) = let
   
   -- Indeces denoting the start of every point's segment
-  trueFlagIndecesL :: Acc (Vector (Int))
-  trueFlagIndecesL = propagateL headFlags (generate (I1 (length points)) (\(I1 i) -> i))
+  trueFlagIndecesL :: Acc (Vector Bool) -> Acc (Vector Int)
+  trueFlagIndecesL flagList = propagateL flagList (generate (I1 (length points)) (\(I1 i) -> i))
 
   -- Indeces denoting the end of every point's segment
-  trueFlagIndecesR :: Acc (Vector (Int))
-  trueFlagIndecesR = propagateR headFlags (generate (I1 (length points)) (\(I1 i) -> i))
+  trueFlagIndecesR :: Acc (Vector Bool) -> Acc (Vector Int)
+  trueFlagIndecesR flagList = propagateR flagList (generate (I1 (length points)) (\(I1 i) -> i))
 
   -- Array of all points, stored together with the start- and end-indicators of their segment 
-  segmentedPoints = zip3 points trueFlagIndecesL trueFlagIndecesR
+  segmentedPoints :: Acc (Array DIM1 (Point, Int, Int))
+  segmentedPoints = zip3 points (trueFlagIndecesL headFlags) (trueFlagIndecesR headFlags)
 
   -- The function compares the distances of two points to the line in question and returns the point with the biggest distance
-  getBiggerDistance (T3 p s e) (T3 p2 s2 e2) = if (nonNormalizedDistance (T2 s e) p) > (nonNormalizedDistance (T2 s2 e2) p2) then (T3 p s e)
-                                               else (T3 p2 s2 e2)
+  getBiggerDistance (T3 p s e) (T3 p2 s2 e2) = if (nonNormalizedDistance (T2 (points !! s) (points !! e)) p) > (nonNormalizedDistance (T2 (points !! s2) (points !! e2)) p2) then T3 p undefined undefined
+                                               else T3 p2 undefined undefined
   
   -- Unzip the vector of triples
-  T3 vecP3 vecStarts vecEnd = segmentedScanl1 (getBiggerDistance) segmentedPoints headFlags
-  (t, f, f, f, f, t, f, f, f, f, f, f, t)
-  (p1,p1,p1,p3,p3,p2,p2,p2,p2,p3,p3,p3,p1)
-  -- p3 of each segment is to the left of every true
-  -- all trueFlagIndecesR - 1 gets you index of all p3
-  -- maybe: get index of each p3 in original points array
-  -- TODO: check if in or outside confexhull etc...
+  vecP3 = map (\(T3 p _ _) -> p) (segmentedScanl1 (getBiggerDistance) headFlags segmentedPoints)
+  -- If a point's value is equal to the largest value in its segment, it is on the convex hull
+  newFlags = map (\(T2 a b) -> a == b) (zip vecP3 points)
 
+  newSegmentedPoints :: Acc (Array DIM1 (Point, Int, Int))
+  newSegmentedPoints = zip3 points (trueFlagIndecesL newFlags) (trueFlagIndecesR newFlags)
 
-  segmentP1, segmentP2, segmentP3 :: Exp Point
-  segmentP1 = 
-  segmentP2 = 
-  segmentP3 = (nonNormalizedDistance (T2 segmentP1 segmentP2)) 
+  -- All points on or outside of the convex hull
+  outsideHull :: Acc (Vector Bool)
+  outsideHull = map (\(T3 p s e) -> (not $ pointIsRightOfLine (T2 (points !! s) (points !! e)) p)) newSegmentedPoints
+  countNewPoints = sum $ bool2Int outsideHull
+  newIndeces = segmentedScanl1 (+) newFlags (bool2Int outsideHull)
+
 
   
+  destination = map getDestiny (zip outsideHull (generate (I1 (length outsideHull)) (\(I1 i) -> i)))
+ 
+  getDestiny (T2 b index) = if b then Just_ (I1 (newIndeces !! index))
+                            else Nothing_
+
+--TODO FIX THIS THING
+  --newPoints = permute (const) (generate (I1 (the countNewPoints)) undefined) (\(I1 i) -> destination !! i) points
+  --newHeadFlags  = 
+  T2 newHeadFlags newPoints = T2 (unzip $ permute (const) (generate (I1 (the countNewPoints)) undefined) (\(I1 i) -> destination !! i) (zip newFlags points))
+
+  -- newHeadFlags and newPoints should have the length of the amount of True's in outsideHull
 
   in 
-  -- Terminate if there are no more undecided points
-  if (and headFlags)
+  if (and headFlags)  -- Terminate if there are no more undecided points
     then (T2 headFlags points)
   else partition (T2 newHeadFlags newPoints)
 
@@ -165,11 +173,15 @@ partition (T2 headFlags points) = let
 -- no undecided points remaining. What remains is the convex hull.
 --
 quickhull :: Acc (Vector Point) -> Acc (Vector Point)
-quickhull = partition $ initialPartion
+quickhull = partition . initialPartition
 
 
 -- Helper functions
 -- ----------------
+
+-- Converts booleans to integers
+bool2Int :: Acc (Vector Bool) -> Acc (Vector Int)
+bool2Int boolList = map (\b -> if b == True_ then 1 else 0) boolList
 
 -- >>> import Data.Array.Accelerate.Interpreter
 -- >>> let flags  = fromList (Z :. 9) [True,False,False,True,True,False,False,False,True]

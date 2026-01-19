@@ -142,8 +142,9 @@ partition (T2 headFlags points) = let
   (t, f, f, f, f, t, f, f, f, f, f, f, t)
   (p1,p1,p1,p3,p3,p2,p2,p2,p2,p3,p3,p3,p1)
   -- p3 of each segment is to the left of every true
+  -- all trueFlagIndecesR - 1 gets you index of all p3
   -- maybe: get index of each p3 in original points array
-  -- 
+  -- TODO: check if in or outside confexhull etc...
 
 
   segmentP1, segmentP2, segmentP3 :: Exp Point

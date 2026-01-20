@@ -117,7 +117,7 @@ initialPartition points =
 -- These points are undecided.
 
 partition :: Acc SegmentedPoints -> Acc SegmentedPoints
-partition (T2 headFlags points) = let 
+partition (T2 headFlags points) = let
   
   -- Indeces denoting the start of every point's segment
   trueFlagIndecesL :: Acc (Vector Bool) -> Acc (Vector Int)
@@ -143,70 +143,37 @@ partition (T2 headFlags points) = let
   newSegmentedPoints :: Acc (Array DIM1 (Point, Int, Int, Bool))
   newSegmentedPoints = zip4 points (trueFlagIndecesL newFlags) (trueFlagIndecesR newFlags) newFlags
 
-  -- All points on or outside of the convex hull
+  -- All points outside of the convex hull and the new headflags
   outsideHull :: Acc (Vector Bool)
   outsideHull = map (\(T4 p s e f) -> (f || pointIsLeftOfLine (T2 (points !! s) (points !! e)) p)) newSegmentedPoints
   countNewPoints = sum $ bool2Int outsideHull
-  newIndeces = segmentedScanl1 (func) outsideHull (bool2Int outsideHull)
-  -- [t, f, f, t, t, t, t, t, t, f, t, f, t]
-  -- [0, 1, 2, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0] -- (+ oppositeBoolToInt)
-  -- [1, 0, 0, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1] -- 2Int
-  -- [1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 0, 1, 0] -- rightshifted
-  -- [1, 2, 2, 0, 1, 1, 1, 1, 1, 2, 0, 1, 0] -- cooking
-  
-  -- [0, 0, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1, 1] -- leftshifted
-  -- [0, 0, 1, 1, 1, 1, 1, 1, 1, 2, 0, 1, 1] -- cooking                 sunita spot: [  ]
-  -- [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1] oeps (huidig)
-  -- [1, n, n, 2, 3, 1, 2, 3, 1, n, 2, n, 3]
-  -- [0, n, n, 1, 2, 3, 4, 5, 6, n, 7, n, 8] -- goal
+  newIndeces = segmentedScanl1 (+) newFlags (bool2Int outsideHull)
 
 
-
--- step 1 = count all points you don't want
-  -- [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
-
-  -- [t, f, f, t, t, t, t, t, t, f, t, f, t]
-  -- [0, 1, 2, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0] -- (+ oppositeBoolToInt)
-
--- step 2 =
-  -- [f, f, t, t, t, t, t, t, f, t, f, t, t] -- shift head flags l
-  -- [0, 1, 2, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0]
   
   destination = map getDestiny (zip outsideHull (generate (I1 (length outsideHull)) (\(I1 i) -> i)))
  
   getDestiny (T2 b index) = if b then Just_ (I1 (newIndeces !! index))
                             else Nothing_
 
---TODO FIX THIS THING
--- undefined??
   zipped = zip newFlags points
   p1 = zipped !! 0
-  result = permute (const) (generate (I1 (the countNewPoints)) (\_ -> p1)) (\(I1 i) -> destination !! i) zipped
-  --newPoints = permute (const) (generate (I1 (the countNewPoints)) undefined) (\(I1 i) -> destination !! i) points
-  --newHeadFlags  = 
-
   -- newHeadFlags and newPoints should have the length of the amount of True's in outsideHull
+  result = permute (const) (generate (I1 (the countNewPoints)) (\_ -> p1)) (\(I1 i) -> destination !! i) zipped
+
   newHeadFlags = map (\(T2 b _) -> b) result
   newPoints = map (\(T2 _ p) -> p) result
 
   in 
-  T2 newHeadFlags newPoints -- = T2 (unzip $ permute (const) (generate (I1 (the countNewPoints)) undefined) (\(I1 i) -> destination !! i) (zip newFlags points))
-
+  T2 newHeadFlags newPoints
 
 
 -- The completed algorithm repeatedly partitions the points until there are
 -- no undecided points remaining. What remains is the convex hull.
 --
 quickhull :: Acc (Vector Point) -> Acc (Vector Point)
-quickhull = P.id --T2 (headFlags newpoints) = (partition . initialPartition)
---             in 
---             awhile (not $ and headFlags) (T2 (partition . initialPartition)
-  --  if (and headFlags)  -- Terminate if there are no more undecided points
-  --   then (T2 headFlags points)
-  -- else partition (T2 newHeadFlags newPoints)
-  -- (\(T2 flags points) -> points) . partition . initialPartition
-  -- REMOVE LAST POINT init points or something
-
+quickhull = init . (\(T2 _ points) -> points) . partition . initialPartition -- remove last point
+-- maybe something with awhile
 
 -- Helper functions
 -- ----------------
@@ -223,7 +190,7 @@ bool2Int boolList = map (\b -> if b == True_ then 1 else 0) boolList
 -- should be:
 -- Vector (Z :. 9) [1,1,1,4,5,5,5,5,9]
 propagateL :: Elt a => Acc (Vector Bool) -> Acc (Vector a) -> Acc (Vector a)
-propagateL flags values = segmentedScanl1 (\ a b -> a) flags values
+propagateL flags values = segmentedScanl1 (\ a _ -> a) flags values
 
 -- >>> import Data.Array.Accelerate.Interpreter
 -- >>> let flags  = fromList (Z :. 9) [True,False,False,True,True,False,False,False,True]
@@ -233,7 +200,7 @@ propagateL flags values = segmentedScanl1 (\ a b -> a) flags values
 -- should be:
 -- Vector (Z :. 9) [1,4,4,4,5,9,9,9,9]
 propagateR :: Elt a => Acc (Vector Bool) -> Acc (Vector a) -> Acc (Vector a)
-propagateR flags values = segmentedScanr1 (\ a b -> a) flags values
+propagateR flags values = segmentedScanr1 (\ a _ -> a) flags values
 
 -- >>> import Data.Array.Accelerate.Interpreter
 -- >>> run $ shiftHeadFlagsL (use (fromList (Z :. 6) [False,False,False,True,False,True]))
@@ -264,7 +231,7 @@ shiftHeadFlagsR flags = scatter (generate (I1 (length flags)) (\(I1 i) -> i + 1)
 -- non-associative combination functions may seem to work fine here -- only to
 -- fail spectacularly when testing with a parallel backend on larger inputs. ;)
 segmentedScanl1 :: Elt a => (Exp a -> Exp a -> Exp a) -> Acc (Vector Bool) -> Acc (Vector a) -> Acc (Vector a)
-segmentedScanl1 func flags values = map (\(T2 f v) -> v) (scanl1 (segmented func) (zip flags values))
+segmentedScanl1 func flags values = map (\(T2 _ v) -> v) (scanl1 (segmented func) (zip flags values))
 
 -- >>> import Data.Array.Accelerate.Interpreter
 -- >>> let flags  = fromList (Z :. 9) [True,False,False,True,True,False,False,False,True]
@@ -275,7 +242,7 @@ segmentedScanl1 func flags values = map (\(T2 f v) -> v) (scanl1 (segmented func
 -- >>> fromList (Z :. 9) [1, 2+3+4, 3+4, 4, 5, 6+7+8+9, 7+8+9, 8+9, 9] :: Vector Int
 -- Vector (Z :. 9) [1,9,7,4,5,30,24,17,9]
 segmentedScanr1 :: Elt a => (Exp a -> Exp a -> Exp a) -> Acc (Vector Bool) -> Acc (Vector a) -> Acc (Vector a)
-segmentedScanr1 func flags values = map (\(T2 f v) -> v) (scanr1 (\ a b -> (segmented func) b a) (zip flags values))
+segmentedScanr1 func flags values = map (\(T2 _ v) -> v) (scanr1 (\ a b -> (segmented func) b a) (zip flags values))
 
 
 -- Given utility functions
@@ -290,13 +257,6 @@ pointIsLeftOfLine (T2 (T2 x1 y1) (T2 x2 y2)) (T2 x y) = nx * x + ny * y > c
 
 pointIsRightOfLine :: Exp Line -> Exp Point -> Exp Bool
 pointIsRightOfLine (T2 (T2 x1 y1) (T2 x2 y2)) (T2 x y) = nx * x + ny * y < c
-  where
-    nx = y1 - y2
-    ny = x2 - x1
-    c  = nx * x1 + ny * y1
-
-pointIsOnTheLine :: Exp Line -> Exp Point -> Exp Bool
-pointIsOnTheLine (T2 (T2 x1 y1) (T2 x2 y2)) (T2 x y) = nx * x + ny * y == c
   where
     nx = y1 - y2
     ny = x2 - x1

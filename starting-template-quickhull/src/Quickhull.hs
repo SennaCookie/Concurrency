@@ -132,20 +132,20 @@ partition (T2 headFlags points) = let
   segmentedPoints = zip3 points (trueFlagIndecesL headFlags) (trueFlagIndecesR headFlags)
 
   -- The function compares the distances of two points to the line in question and returns the point with the biggest distance
-  getBiggerDistance (T3 p s e) (T3 p2 s2 e2) = if (nonNormalizedDistance (T2 (points !! s) (points !! e)) p) > (nonNormalizedDistance (T2 (points !! s2) (points !! e2)) p2) then T3 p undefined undefined
-                                               else T3 p2 undefined undefined
+  getBiggerDistance (T3 p s e) (T3 p2 s2 e2) = if (nonNormalizedDistance (T2 (points !! s) (points !! e)) p) > (nonNormalizedDistance (T2 (points !! s2) (points !! e2)) p2) then T3 p s e
+                                               else T3 p2 s2 e2
   
   -- Unzip the vector of triples
   vecP3 = map (\(T3 p _ _) -> p) (segmentedScanl1 (getBiggerDistance) headFlags segmentedPoints)
   -- If a point's value is equal to the largest value in its segment, it is on the convex hull
   newFlags = map (\(T2 a b) -> a == b) (zip vecP3 points)
 
-  newSegmentedPoints :: Acc (Array DIM1 (Point, Int, Int))
-  newSegmentedPoints = zip3 points (trueFlagIndecesL newFlags) (trueFlagIndecesR newFlags)
+  newSegmentedPoints :: Acc (Array DIM1 (Point, Int, Int, Bool))
+  newSegmentedPoints = zip4 points (trueFlagIndecesL newFlags) (trueFlagIndecesR newFlags) newFlags
 
   -- All points on or outside of the convex hull
   outsideHull :: Acc (Vector Bool)
-  outsideHull = map (\(T3 p s e) -> (not $ pointIsRightOfLine (T2 (points !! s) (points !! e)) p)) newSegmentedPoints
+  outsideHull = map (\(T4 p s e f) -> (f || pointIsLeftOfLine (T2 (points !! s) (points !! e)) p)) newSegmentedPoints
   countNewPoints = sum $ bool2Int outsideHull
   newIndeces = segmentedScanl1 (+) newFlags (bool2Int outsideHull)
 
@@ -157,23 +157,34 @@ partition (T2 headFlags points) = let
                             else Nothing_
 
 --TODO FIX THIS THING
+-- undefined??
+  zipped = zip newFlags points
+  p1 = zipped !! 0
+  result = permute (const) (generate (I1 (the countNewPoints)) (\_ -> p1)) (\(I1 i) -> destination !! i) zipped
   --newPoints = permute (const) (generate (I1 (the countNewPoints)) undefined) (\(I1 i) -> destination !! i) points
   --newHeadFlags  = 
-  T2 newHeadFlags newPoints = T2 (unzip $ permute (const) (generate (I1 (the countNewPoints)) undefined) (\(I1 i) -> destination !! i) (zip newFlags points))
 
   -- newHeadFlags and newPoints should have the length of the amount of True's in outsideHull
+  newHeadFlags = map (\(T2 b _) -> b) result
+  newPoints = map (\(T2 _ p) -> p) result
 
   in 
-  if (and headFlags)  -- Terminate if there are no more undecided points
-    then (T2 headFlags points)
-  else partition (T2 newHeadFlags newPoints)
+  T2 newHeadFlags newPoints -- = T2 (unzip $ permute (const) (generate (I1 (the countNewPoints)) undefined) (\(I1 i) -> destination !! i) (zip newFlags points))
+
 
 
 -- The completed algorithm repeatedly partitions the points until there are
 -- no undecided points remaining. What remains is the convex hull.
 --
 quickhull :: Acc (Vector Point) -> Acc (Vector Point)
-quickhull = (\(T2 flags points) -> points) . partition . initialPartition
+quickhull = P.id --T2 (headFlags newpoints) = (partition . initialPartition)
+--             in 
+--             awhile (not $ and headFlags) (T2 (partition . initialPartition)
+  --  if (and headFlags)  -- Terminate if there are no more undecided points
+  --   then (T2 headFlags points)
+  -- else partition (T2 newHeadFlags newPoints)
+  -- (\(T2 flags points) -> points) . partition . initialPartition
+  -- REMOVE LAST POINT init points or something
 
 
 -- Helper functions

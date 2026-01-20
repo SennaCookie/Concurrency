@@ -75,15 +75,12 @@ initialPartition points =
 
       offsetUpper :: Acc (Vector Int)
       countUpper  :: Acc (Scalar Int)
-      T2 offsetUpper countUpper = T2 (scanl (+) 1 (boolToInt isUpper)) (sum (boolToInt isUpper))
-      
-      boolToInt :: Acc (Vector Bool) -> Acc (Vector Int)
-      boolToInt boolList = map (\b -> if b == True_ then 1 else 0) boolList
+      T2 offsetUpper countUpper = T2 (scanl (+) 1 (bool2Int isUpper)) (sum (bool2Int isUpper))
 
       offsetLower :: Acc (Vector Int)
       countLower  :: Acc (Scalar Int)
       -- start the indeces of the lower points after P1 the upper points and p2 (so countUpper + 2)
-      T2 offsetLower countLower = T2 (scanl (+) (the countUpper + 2) (boolToInt isLower)) (sum (boolToInt isLower))
+      T2 offsetLower countLower = T2 (scanl (+) (the countUpper + 2) (bool2Int isLower)) (sum (bool2Int isLower))
         -- number of points below the line and their relative index
 
       destination :: Acc (Vector (Maybe DIM1))
@@ -92,24 +89,23 @@ initialPartition points =
         -- check all points with map
         -- check if point is p1 or p2
         -- check if point is left of line -> get right index from offset
-      getDestiny (T2 val index) = if val == p1 then Just_ (I1 0)
-                                  else if (val == p2) then Just_ (I1 (the (countUpper) + 1))
-                                  else if (pointIsLeftOfLine (T2 p1 p2) val) then Just_ (I1 (offsetUpper !! index))
+      getDestiny (T2 val index) = if (pointIsLeftOfLine (T2 p1 p2) val) then Just_ (I1 (offsetUpper !! index))
                                   else if (pointIsRightOfLine (T2 p1 p2) val) then Just_ (I1 (offsetLower !! index))
+                                  else if val == p1 then Just_ (I1 0)
+                                  else if (val == p2) then Just_ (I1 (the (countUpper) + 1))
                                   else Nothing_
 
       newPoints :: Acc (Vector Point)
       -- The size of the newpoints array is the size of p1, p2, the upper points and the lower point and an extra p1. (So the countUpper + the countLower + 3)
       -- The default value will be P1 so that an extra P1 is added to the end of the array.
-      newPoints = permute (const) (generate (I1 (the countUpper + the countLower + 3)) (\_ -> p1)) (\(I1 i) -> destination !! i) points 
-        --error "TODO: place each point into its corresponding segment of the result"
+      -- place each point into its corresponding segment of the result"
+      newPoints = permute (const) (generate (I1 (the countUpper + the countLower + 3)) (\_ -> p1)) (\(I1 i) -> destination !! i) points
 
+      -- Create head flags array demarcating the initial segments
       headFlags :: Acc (Vector Bool)
       headFlags = map (\p -> p == p1 || p == p2) newPoints
-        -- Create head flags array demarcating the initial segments"
   in
   T2 headFlags newPoints
-
 
 -- The core of the algorithm processes all line segments at once in
 -- data-parallel. This is similar to the previous partitioning step, except
@@ -119,22 +115,72 @@ initialPartition points =
 -- p₃. This point is on the convex hull. Then determine whether each point
 -- p in that segment lies to the left of (p₁,p₃) or the right of (p₂,p₃).
 -- These points are undecided.
---
+
 partition :: Acc SegmentedPoints -> Acc SegmentedPoints
-partition (T2 headFlags points) =
-  error "TODO: partition"
+partition (T2 headFlags points) = let
+  
+  -- Indeces denoting the start of every point's segment
+  trueFlagIndecesL :: Acc (Vector Bool) -> Acc (Vector Int)
+  trueFlagIndecesL flagList = propagateL flagList (generate (I1 (length points)) (\(I1 i) -> i))
+
+  -- Indeces denoting the end of every point's segment
+  trueFlagIndecesR :: Acc (Vector Bool) -> Acc (Vector Int)
+  trueFlagIndecesR flagList = propagateR flagList (generate (I1 (length points)) (\(I1 i) -> i))
+
+  -- Array of all points, stored together with the start- and end-indicators of their segment 
+  segmentedPoints :: Acc (Array DIM1 (Point, Int, Int))
+  segmentedPoints = zip3 points (trueFlagIndecesL headFlags) (trueFlagIndecesR headFlags)
+
+  -- The function compares the distances of two points to the line in question and returns the point with the biggest distance
+  getBiggerDistance (T3 p s e) (T3 p2 s2 e2) = if (nonNormalizedDistance (T2 (points !! s) (points !! e)) p) > (nonNormalizedDistance (T2 (points !! s2) (points !! e2)) p2) then T3 p s e
+                                               else T3 p2 s2 e2
+  
+  -- Unzip the vector of triples
+  vecP3 = map (\(T3 p _ _) -> p) (segmentedScanl1 (getBiggerDistance) headFlags segmentedPoints)
+  -- If a point's value is equal to the largest value in its segment, it is on the convex hull
+  newFlags = map (\(T2 a b) -> a == b) (zip vecP3 points)
+
+  newSegmentedPoints :: Acc (Array DIM1 (Point, Int, Int, Bool))
+  newSegmentedPoints = zip4 points (trueFlagIndecesL newFlags) (trueFlagIndecesR newFlags) newFlags
+
+  -- All points outside of the convex hull and the new headflags
+  outsideHull :: Acc (Vector Bool)
+  outsideHull = map (\(T4 p s e f) -> (f || pointIsLeftOfLine (T2 (points !! s) (points !! e)) p)) newSegmentedPoints
+  countNewPoints = sum $ bool2Int outsideHull
+  newIndeces = segmentedScanl1 (+) newFlags (bool2Int outsideHull)
+
+
+  
+  destination = map getDestiny (zip outsideHull (generate (I1 (length outsideHull)) (\(I1 i) -> i)))
+ 
+  getDestiny (T2 b index) = if b then Just_ (I1 (newIndeces !! index))
+                            else Nothing_
+
+  zipped = zip newFlags points
+  p1 = zipped !! 0
+  -- newHeadFlags and newPoints should have the length of the amount of True's in outsideHull
+  result = permute (const) (generate (I1 (the countNewPoints)) (\_ -> p1)) (\(I1 i) -> destination !! i) zipped
+
+  newHeadFlags = map (\(T2 b _) -> b) result
+  newPoints = map (\(T2 _ p) -> p) result
+
+  in 
+  T2 newHeadFlags newPoints
 
 
 -- The completed algorithm repeatedly partitions the points until there are
 -- no undecided points remaining. What remains is the convex hull.
 --
 quickhull :: Acc (Vector Point) -> Acc (Vector Point)
-quickhull =
-  error "TODO: quickhull"
-
+quickhull = init . (\(T2 _ points) -> points) . partition . initialPartition -- remove last point
+-- maybe something with awhile
 
 -- Helper functions
 -- ----------------
+
+-- Converts booleans to integers
+bool2Int :: Acc (Vector Bool) -> Acc (Vector Int)
+bool2Int boolList = map (\b -> if b == True_ then 1 else 0) boolList
 
 -- >>> import Data.Array.Accelerate.Interpreter
 -- >>> let flags  = fromList (Z :. 9) [True,False,False,True,True,False,False,False,True]
@@ -144,7 +190,7 @@ quickhull =
 -- should be:
 -- Vector (Z :. 9) [1,1,1,4,5,5,5,5,9]
 propagateL :: Elt a => Acc (Vector Bool) -> Acc (Vector a) -> Acc (Vector a)
-propagateL flags values = segmentedScanl1 (\ a b -> a) flags values
+propagateL flags values = segmentedScanl1 (\ a _ -> a) flags values
 
 -- >>> import Data.Array.Accelerate.Interpreter
 -- >>> let flags  = fromList (Z :. 9) [True,False,False,True,True,False,False,False,True]
@@ -154,7 +200,7 @@ propagateL flags values = segmentedScanl1 (\ a b -> a) flags values
 -- should be:
 -- Vector (Z :. 9) [1,4,4,4,5,9,9,9,9]
 propagateR :: Elt a => Acc (Vector Bool) -> Acc (Vector a) -> Acc (Vector a)
-propagateR flags values = segmentedScanr1 (\ a b -> a) flags values
+propagateR flags values = segmentedScanr1 (\ a _ -> a) flags values
 
 -- >>> import Data.Array.Accelerate.Interpreter
 -- >>> run $ shiftHeadFlagsL (use (fromList (Z :. 6) [False,False,False,True,False,True]))
@@ -185,7 +231,7 @@ shiftHeadFlagsR flags = scatter (generate (I1 (length flags)) (\(I1 i) -> i + 1)
 -- non-associative combination functions may seem to work fine here -- only to
 -- fail spectacularly when testing with a parallel backend on larger inputs. ;)
 segmentedScanl1 :: Elt a => (Exp a -> Exp a -> Exp a) -> Acc (Vector Bool) -> Acc (Vector a) -> Acc (Vector a)
-segmentedScanl1 func flags values = map (\(T2 f v) -> v) (scanl1 (segmented func) (zip flags values))
+segmentedScanl1 func flags values = map (\(T2 _ v) -> v) (scanl1 (segmented func) (zip flags values))
 
 -- >>> import Data.Array.Accelerate.Interpreter
 -- >>> let flags  = fromList (Z :. 9) [True,False,False,True,True,False,False,False,True]
@@ -196,7 +242,7 @@ segmentedScanl1 func flags values = map (\(T2 f v) -> v) (scanl1 (segmented func
 -- >>> fromList (Z :. 9) [1, 2+3+4, 3+4, 4, 5, 6+7+8+9, 7+8+9, 8+9, 9] :: Vector Int
 -- Vector (Z :. 9) [1,9,7,4,5,30,24,17,9]
 segmentedScanr1 :: Elt a => (Exp a -> Exp a -> Exp a) -> Acc (Vector Bool) -> Acc (Vector a) -> Acc (Vector a)
-segmentedScanr1 func flags values = map (\(T2 f v) -> v) (scanr1 (\ a b -> (segmented func) b a) (zip flags values))
+segmentedScanr1 func flags values = map (\(T2 _ v) -> v) (scanr1 (\ a b -> (segmented func) b a) (zip flags values))
 
 
 -- Given utility functions
@@ -211,13 +257,6 @@ pointIsLeftOfLine (T2 (T2 x1 y1) (T2 x2 y2)) (T2 x y) = nx * x + ny * y > c
 
 pointIsRightOfLine :: Exp Line -> Exp Point -> Exp Bool
 pointIsRightOfLine (T2 (T2 x1 y1) (T2 x2 y2)) (T2 x y) = nx * x + ny * y < c
-  where
-    nx = y1 - y2
-    ny = x2 - x1
-    c  = nx * x1 + ny * y1
-
-pointIsOnTheLine :: Exp Line -> Exp Point -> Exp Bool
-pointIsOnTheLine (T2 (T2 x1 y1) (T2 x2 y2)) (T2 x y) = nx * x + ny * y == c
   where
     nx = y1 - y2
     ny = x2 - x1

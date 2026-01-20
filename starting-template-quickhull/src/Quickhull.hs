@@ -117,7 +117,7 @@ initialPartition points =
 -- These points are undecided.
 
 partition :: Acc SegmentedPoints -> Acc SegmentedPoints
-partition (T2 headFlags points) = let
+partition (T2 headFlags points) = let 
   
   -- Indeces denoting the start of every point's segment
   trueFlagIndecesL :: Acc (Vector Bool) -> Acc (Vector Int)
@@ -147,9 +147,30 @@ partition (T2 headFlags points) = let
   outsideHull :: Acc (Vector Bool)
   outsideHull = map (\(T4 p s e f) -> (f || pointIsLeftOfLine (T2 (points !! s) (points !! e)) p)) newSegmentedPoints
   countNewPoints = sum $ bool2Int outsideHull
-  newIndeces = segmentedScanl1 (+) newFlags (bool2Int outsideHull)
+  newIndeces = segmentedScanl1 (func) outsideHull (bool2Int outsideHull)
+  -- [t, f, f, t, t, t, t, t, t, f, t, f, t]
+  -- [0, 1, 2, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0] -- (+ oppositeBoolToInt)
+  -- [1, 0, 0, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1] -- 2Int
+  -- [1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 0, 1, 0] -- rightshifted
+  -- [1, 2, 2, 0, 1, 1, 1, 1, 1, 2, 0, 1, 0] -- cooking
+  
+  -- [0, 0, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1, 1] -- leftshifted
+  -- [0, 0, 1, 1, 1, 1, 1, 1, 1, 2, 0, 1, 1] -- cooking                 sunita spot: [  ]
+  -- [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1] oeps (huidig)
+  -- [1, n, n, 2, 3, 1, 2, 3, 1, n, 2, n, 3]
+  -- [0, n, n, 1, 2, 3, 4, 5, 6, n, 7, n, 8] -- goal
 
 
+
+-- step 1 = count all points you don't want
+  -- [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+
+  -- [t, f, f, t, t, t, t, t, t, f, t, f, t]
+  -- [0, 1, 2, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0] -- (+ oppositeBoolToInt)
+
+-- step 2 =
+  -- [f, f, t, t, t, t, t, t, f, t, f, t, t] -- shift head flags l
+  -- [0, 1, 2, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0]
   
   destination = map getDestiny (zip outsideHull (generate (I1 (length outsideHull)) (\(I1 i) -> i)))
  

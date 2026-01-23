@@ -129,31 +129,34 @@ partition (T2 headFlags points) = let
 
   -- Array of all points, stored together with the start- and end-indicators of their segment 
   segmentedPoints :: Acc (Array DIM1 (Point, Int, Int))
-  segmentedPoints = zip3 points (trueFlagIndecesL headFlags) (trueFlagIndecesR headFlags)
+  segmentedPoints = zip3 points (trueFlagIndecesL headFlags) (trueFlagIndecesR  headFlags)
 
   -- The function compares the distances of two points to the line in question and returns the point with the biggest distance
   getBiggerDistance (T3 p s e) (T3 p2 s2 e2) = if (nonNormalizedDistance (T2 (points !! s) (points !! e)) p) > (nonNormalizedDistance (T2 (points !! s2) (points !! e2)) p2) then T3 p s e
                                                else T3 p2 s2 e2
   
   -- Unzip the vector of triples
-  vecP3 = map (\(T3 p _ _) -> p) (segmentedScanl1 (getBiggerDistance) headFlags segmentedPoints)
+  tempVecP3 = (map (\(T3 p _ _) -> p) (segmentedScanr1 (getBiggerDistance) headFlags segmentedPoints))
+
+  vecP3 = propagateL (shiftHeadFlagsR headFlags) tempVecP3
+
   -- If a point's value is equal to the largest value in its segment, it is on the convex hull
-  newFlags = map (\(T2 a b) -> a == b) (zip vecP3 points)
+  newFlags :: Acc (Vector Bool)
+  newFlags = map (\(T3 a b f) -> (a == b || f)) (zip3 vecP3 points headFlags)
 
   newSegmentedPoints :: Acc (Array DIM1 (Point, Int, Int, Bool))
   newSegmentedPoints = zip4 points (trueFlagIndecesL newFlags) (trueFlagIndecesR newFlags) newFlags
 
   -- All points outside of the convex hull and the new headflags
   outsideHull :: Acc (Vector Bool)
-  outsideHull = map (\(T4 p s e f) -> (f || pointIsLeftOfLine (T2 (points !! s) (points !! e)) p)) newSegmentedPoints
-  countNewPoints = sum $ bool2Int outsideHull
-  newIndeces = segmentedScanl1 (+) newFlags (bool2Int outsideHull)
+  outsideHull =  map (\(T4 p s e f) -> f || (pointIsLeftOfLine (T2 (points !! s) (points !! e)) p)) newSegmentedPoints
+  outsideHullInt = bool2Int outsideHull
+  countNewPoints = sum outsideHullInt
 
 
-  
-  destination = map getDestiny (zip outsideHull (generate (I1 (length outsideHull)) (\(I1 i) -> i)))
- 
-  getDestiny (T2 b index) = if b then Just_ (I1 (newIndeces !! index))
+  destination = map getDestiny (zip outsideHull (scanl (+) 0 outsideHullInt))
+
+  getDestiny (T2 f index) = if f then Just_ (I1 index)
                             else Nothing_
 
   zipped = zip newFlags points

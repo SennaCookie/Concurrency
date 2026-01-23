@@ -119,87 +119,45 @@ initialPartition points =
 partition :: Acc SegmentedPoints -> Acc SegmentedPoints
 partition (T2 headFlags points) = let
   
-
-  --TODO FIX DIT!!!
   -- Indeces denoting the start of every point's segment
   trueFlagIndecesL :: Acc (Vector Bool) -> Acc (Vector Int)
-  trueFlagIndecesL flagList = atraceId "starts" (propagateL flagList (generate (I1 (length (atraceId "points" points))) (\(I1 i) -> i)))
+  trueFlagIndecesL flagList = propagateL flagList (generate (I1 (length points)) (\(I1 i) -> i))
 
   -- Indeces denoting the end of every point's segment
   trueFlagIndecesR :: Acc (Vector Bool) -> Acc (Vector Int)
-  trueFlagIndecesR flagList = atraceId "ends" (propagateR flagList (generate (I1 (length points)) (\(I1 i) -> i)))
+  trueFlagIndecesR flagList = propagateR flagList (generate (I1 (length points)) (\(I1 i) -> i))
 
   -- Array of all points, stored together with the start- and end-indicators of their segment 
   segmentedPoints :: Acc (Array DIM1 (Point, Int, Int))
-  segmentedPoints = atraceId "segmentedPoints" (zip3 points (trueFlagIndecesL headFlags) (trueFlagIndecesR (atraceId "headFlags" headFlags)))
+  segmentedPoints = zip3 points (trueFlagIndecesL headFlags) (trueFlagIndecesR  headFlags)
 
   -- The function compares the distances of two points to the line in question and returns the point with the biggest distance
   getBiggerDistance (T3 p s e) (T3 p2 s2 e2) = if (nonNormalizedDistance (T2 (points !! s) (points !! e)) p) > (nonNormalizedDistance (T2 (points !! s2) (points !! e2)) p2) then T3 p s e
                                                else T3 p2 s2 e2
   
   -- Unzip the vector of triples
-  vecP3 = map (\(T3 p _ _) -> p) (segmentedScanl1 (getBiggerDistance) headFlags segmentedPoints)
+  tempVecP3 = (map (\(T3 p _ _) -> p) (segmentedScanr1 (getBiggerDistance) headFlags segmentedPoints))
+
+  vecP3 = propagateL (shiftHeadFlagsR headFlags) tempVecP3
+
   -- If a point's value is equal to the largest value in its segment, it is on the convex hull
   newFlags :: Acc (Vector Bool)
-  newFlags = atraceId "newFlags" (map (\(T2 a b) -> a == b) (zip (atraceId "vecP3" vecP3) points))
+  newFlags = map (\(T3 a b f) -> (a == b || f)) (zip3 vecP3 points headFlags)
 
   newSegmentedPoints :: Acc (Array DIM1 (Point, Int, Int, Bool))
   newSegmentedPoints = zip4 points (trueFlagIndecesL newFlags) (trueFlagIndecesR newFlags) newFlags
 
   -- All points outside of the convex hull and the new headflags
   outsideHull :: Acc (Vector Bool)
-  outsideHull = map (\(T4 p s e f) -> (f || pointIsLeftOfLine (T2 (points !! s) (points !! e)) p)) newSegmentedPoints
+  outsideHull =  map (\(T4 p s e f) -> f || (pointIsLeftOfLine (T2 (points !! s) (points !! e)) p)) newSegmentedPoints
   outsideHullInt = bool2Int outsideHull
   countNewPoints = sum outsideHullInt
-  tempIndeces = segmentedScanl1 (+) newFlags outsideHullInt
 
 
-  -- Calculate the offset of every partition
-  shiftedIndecesL = scatter (generate (I1 (length tempIndeces)) (\(I1 i) -> i + 1)) (generate (I1 (length tempIndeces)) (\(I1 i) -> i - i)) (init tempIndeces) 
-  offset = propagateL newFlags shiftedIndecesL
-  offsetPastPart = scatter (generate (I1 (length offset)) (\(I1 i) -> i + 1)) (generate (I1 (length offset)) (\(I1 i) -> i - i)) (init offset)
-
-  -- Calculate the new indeces of the headflags
-  tempIndecesFlags = map (\(T4 f b o op) -> if f then b + o + op else b)(zip4 newFlags outsideHullInt offset offsetPastPart)
- 
-  -- Calculate the new indeces
-  newIndeces = map (\val -> val - 1) (segmentedScanl1 (+) newFlags tempIndecesFlags)
-
-  destination = map getDestiny (zip outsideHull newIndeces)
+  destination = map getDestiny (zip outsideHull (scanl (+) 0 outsideHullInt))
 
   getDestiny (T2 f index) = if f then Just_ (I1 index)
                             else Nothing_
-
-
-  -- [1, 0, 0, 1, 0, 0, 1] newFlags
-  -- [1, 0, 1, 1, 1, 1, 1] outside hull
-  -- [1, 1, 2, 1, 2, 3, 1] newIndeces (left)
-  -- [0, 1, 1, 2, 1, 2, 3] scatter and fill 0 with 0 (shifted right with default 0)
-  -- [0, 0, 0, 2, 2, 2, 3] propagateL with the scatter and newFlags -- offset
-  -- [0, 0, 0, 0, 2, 2, 2] scatter shift to right with 0 as default -- offsetPastPartition
-
-  -- zip 4 
-  -- newFlags
-  -- outsiddHull
-  -- offset
-  -- offsetPast
-  -- if headFlag -> offset + offsetPast + newFlags
-  -- else -> outsideHull   map
-  -- [1, 0, 1, 3, 1, 1, 6] headFlagsIndeces
-  -- segmentedScanL + newFlags headFlagsIndeces 
-  -- [1, 1, 2, 3, 4, 5, 6] ActualIndeces
-  -- [0, 0, 1, 2, 3, 4, 5] map (-1) ActualIndeces
-  -- get destiny
-  -- zip 4
-  -- newFlags
-  -- outsideHull
-  -- ActualIndeces
-  -- points
-  -- get destiny map
-  -- [0, n, 1, 2, 3, 4, 5S]
-  -- 
-  -- permute
-
 
   zipped = zip newFlags points
   p1 = zipped !! 0
